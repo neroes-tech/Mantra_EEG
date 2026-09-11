@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mantra-eeg"
+version = "0.1.0"
+description = "Estação de demonstração de EEG com análise post-hoc (g.tec Unicorn Hybrid Black)"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "pyyaml>=6.0",
+    "pandas>=2.2",
+    "pyarrow>=17.0",
+    "matplotlib>=3.9",
+    "specparam==2.0.0rc7",
+    "pyqtgraph>=0.13",
+    "PyQt6>=6.7",
+    "brainflow>=5.22",
+    "pylsl>=1.16",
+]
+
+[project.optional-dependencies]
+# pyinstaller so e preciso para construir o executavel da banca
+# (scripts/build_exe.py + mantraeeg.spec), nao para correr o codigo.
+dev = ["pytest>=8.0", "pyinstaller>=6.10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = ["hardware: requires a connected Unicorn device"]
+filterwarnings = ["ignore::DeprecationWarning"]

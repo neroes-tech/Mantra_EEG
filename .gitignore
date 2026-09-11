@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+data/
+assets/mantra.mp4
+*.npy
+!tests/fixtures/*.npy
+assets/*.m4v
+assets/*.mp4
+assets/*.wav
+
+# O lockup vem do design system e e preciso no relatorio e no email.
+!assets/neroes-lockup-dark.png

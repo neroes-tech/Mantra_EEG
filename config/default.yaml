@@ -1,0 +1,717 @@
+# mantra-eeg — configuração default
+#
+# REGRA: zero números mágicos no código. Todo o limiar, banda, duração, peso e
+# parâmetro de janela vive neste ficheiro. Se um módulo contiver um literal
+# numérico com significado científico, é um bug.
+#
+# Referências entre parêntesis apontam para SPEC.md / BIOMARKERS.md.
+version: 1
+
+# --------------------------------------------------------------------------- #
+# Dispositivo e aquisição                                        (SPEC 1.1-1.3)
+# --------------------------------------------------------------------------- #
+device:
+  # brainflow | unicorn_dll | lsl | replay | synthetic
+  # Trocar de fonte é esta linha e só esta. (critério de aceitação 11)
+  source: brainflow
+
+  sfreq_nominal: 250.0        # Hz. O valor real é medido e gravado em raw_meta.
+  n_device_channels: 17       # buffer do dispositivo (SPEC 1.1)
+  line_freq_hz: 50.0          # rede europeia (SPEC 1.2)
+
+  # Descartar após start_stream: os offsets DC do amplificador levam segundos a
+  # assentar. Medido empiricamente no M0 - sem contacto a rampa não estabiliza
+  # sequer aos 35 s. Reavaliar com contacto bom.
+  settle_discard_s: 10.0
+
+  brainflow:
+    serial_number: ""         # vazio = auto-deteta o dispositivo emparelhado
+    timeout_s: 15.0
+  unicorn_dll:
+    # Ordem de resolução da DLL (SPEC 8.2). Prefixo $ENV: lê variável de ambiente.
+    dll_paths:
+      - "$ENV:MANTRA_UNICORN_DLL"
+      - "C:/Program Files/gtec/Unicorn Suite/Hybrid Black/Unicorn.dll"
+      - "./Unicorn.dll"
+  lsl:
+    stream_name: "UnicornLSL"
+    stream_type: "EEG"
+    resolve_timeout_s: 10.0
+  replay:
+    path: ""
+    realtime: false           # true = respeita o relógio; false = tão rápido quanto possível
+
+  # Sem amostras durante este tempo -> estado 'sem sinal'. Numa banca o headset
+  # e desligado entre participantes, e a app tem de o dizer em vez de mostrar um
+  # tracado congelado que parece sinal.
+  stale_after_s: 3.0
+
+  ring_buffer_s: 60.0         # capacidade do ring buffer de aquisição
+  read_chunk_s: 0.1           # período de sondagem da thread de aquisição
+
+# --------------------------------------------------------------------------- #
+# Montagem                                                          (SPEC 1.2)
+# --------------------------------------------------------------------------- #
+# ATENÇÃO: montagem PERSONALIZADA, não a default do Unicorn. O BrainFlow
+# get_eeg_names() devolve ['Fz','C3','Cz','C4','Pz','PO7','Oz','PO8'], que NÃO é
+# esta. O código nunca deve ler nomes do dispositivo - só daqui.
+montage:
+  channels:                   # índice no buffer do dispositivo -> posição 10-20
+    0: F3
+    1: F4
+    2: C3
+    3: C4
+    4: Fp1
+    5: Fp2
+    6: Oz
+    7: Pz
+  metric_channels: [F3, F4, C3, C4]     # usados nos marcadores
+  eog_channels: [Fp1, Fp2]              # regressores de EOG e deteção de pestanejo
+  unused_channels: [Oz, Pz]             # gravados, não usados na v1
+  reference: hardware                   # manter a referência do hardware
+  apply_car: false                      # NÃO ligar: distorce assimetria e coerência
+  # SPEC 2: não avançar de CONTACT com menos de 4 dos 6 canais úteis bons.
+  min_good_channels_to_start: 4
+
+  # Validação de montagem (o risco de F3/F4 trocados)
+  validation:
+    enabled: true
+    tap_test_seconds_per_channel: 5.0
+    tap_test_min_ratio: 3.0             # sd do canal tocado / mediana dos outros
+    # Verificações automáticas sobre os primeiros N s de cada sessão
+    auto_check_window_s: 30.0
+    blink_band_hz: [1.0, 5.0]
+    # Fp1/Fp2 têm de exceder F3/F4 na banda de pestanejo por este fator
+    frontopolar_dominance_min_ratio: 1.5
+    # Correlação mínima entre canais para declarar "sem contacto / referência
+    # solta". 8 elétrodos reais nunca correlacionam a 1.0 entre si.
+    no_contact_min_interchannel_r: 0.98
+    # Fracao da amplitude do canal. RELATIVO, nao absoluto: a diferenca entre
+    # pares escala com o sinal comum. Com sd de 1490 uV as diferencas eram ~1 uV;
+    # com sd de 10500 uV passaram a ~7 uV e um limiar absoluto de 5 uV deixava
+    # passar um caso obvio de referencia solta.
+    no_contact_max_pair_diff_ratio: 0.02
+
+# --------------------------------------------------------------------------- #
+# Bandas                                                       (BIOMARKERS.md)
+# --------------------------------------------------------------------------- #
+bands:
+  theta:  [4.0, 7.0]
+  theta2: [6.0, 8.0]
+  alpha:  [8.0, 12.0]
+  alpha1: [8.0, 10.0]
+  alpha2: [10.0, 12.0]
+  smr:    [12.0, 15.0]
+  beta:   [15.0, 30.0]        # começa em 15 para não sobrepor ao SMR
+  total:  [1.0, 45.0]         # denominador da potência relativa
+  emg:    [30.0, 45.0]        # índice de EMG (BIOMARKERS.md quality.py)
+  emg_wide: [20.0, 45.0]      # ver nota abaixo
+  line:   [48.0, 52.0]        # índice de rede
+  slow_eye: [0.2, 0.6]        # movimentos oculares lentos -> sonolência
+
+# NOTA sobre emg_wide: emg (30-45) não se sobrepõe a beta (15-30), mas o EMG
+# real do temporal/masséter estende-se abaixo dos 30 Hz. Um r_emg baixo na banda
+# estreita NÃO exonera o beta_rel, que é o marcador com maior peso no
+# calm_index. Reportamos as duas correlações.
+
+# --------------------------------------------------------------------------- #
+# Protocolo                                                         (SPEC 2)
+# --------------------------------------------------------------------------- #
+# Todas as durações são editáveis na interface. Estes são só os defaults, e os
+# valores efetivamente usados vão para raw_meta.json.
+protocol:
+  # SEM LIMITES. As durações são livres; se a fase do mantra exceder a duração
+  # do vídeo, ele repete em ciclo.
+  calibration_s: 60.0
+  calib_use_last_s: 30.0      # os primeiros segundos estão contaminados pela explicação
+  mantra_s: 240.0
+  settle_s: 15.0
+  # Com settle_s >= este valor, o segmento pós-mantra é usado como SEGUNDA linha
+  # de base (desenho ABA) e o relatório ganha o braço de regresso. Abaixo disto o
+  # braço é omitido, não estimado a partir de dados insuficientes.
+  settle_as_baseline_min_s: 45.0
+  n_mantra_thirds: 3          # M1 / M2 / M3
+
+  # INVARIANTE OCULAR (SPEC 2, BIOMARKERS.md). Declarada POR FASE e validada na
+  # carga, para deixar de ser uma suposição: fechar as pálpebras multiplica o
+  # alfa por 2 a 5x (efeito de Berger), uma ordem de grandeza acima de qualquer
+  # efeito de meditação. Calibração de olhos abertos com meditação de olhos
+  # fechados produziria uma "melhoria" enorme que é inteiramente pálpebras.
+  eye_calibration: closed
+  eye_mantra: closed
+  eye_settle: closed
+
+  # De olhos fechados a pessoa não vê o ecrã: as deixas de início e fim têm de
+  # ser áudio. O temporizador no ecrã fica para o operador e para quem assiste.
+  cues:
+    mode: audio               # audio | visual | both
+    start_sound: assets/cue_start.wav
+    end_sound: assets/cue_end.wav
+
+# --------------------------------------------------------------------------- #
+# Pré-processamento                                               (SPEC 3.1)
+# --------------------------------------------------------------------------- #
+preprocess:
+  detrend: linear
+  notch_freqs_hz: [50.0]      # 100 Hz removido: fora da banda 1-45, não faz nada
+  notch_q: 30.0
+  # Aplicar o notch DUAS vezes. Medido com os elétrodos numa mesa, onde a rede
+  # domina brutalmente (PSD a 50 Hz = 1.3e8 x a PSD a 10 Hz): uma passagem deixa
+  # a razão 48-52/1-45 em 16,6; duas passagens levam-na a 0,030, 550x melhor.
+  # O custo na banda útil é desprezável — a atenuação no pior ponto (45 Hz)
+  # passa de -0,23 para -0,45 dB. Baixar o Q em vez disto rejeitaria mais, mas
+  # a -1,85 dB a 45 Hz, o que enviesaria o índice de EMG (30-45 Hz).
+  notch_passes: 2
+  bandpass_hz: [1.0, 45.0]
+  bandpass_order: 4           # Butterworth, sosfiltfilt (fase zero)
+  # Margem descartada nas duas pontas: o filtfilt com corte a 1 Hz contamina os
+  # primeiros e últimos segundos, e são essas as épocas que fixam a referência.
+  filter_edge_s: 5.0
+  # Um notch acima do corte superior nao e automaticamente inutil: a 50 Hz o
+  # Butterworth de ordem 4 com corte a 45 Hz atenua so ~11 dB com filtfilt, e a
+  # rede pode ser duas ordens de grandeza acima do EEG. Acima desta atenuacao o
+  # passa-banda ja o mata sozinho e o notch e rejeitado como redundante (100 Hz
+  # da ~55 dB, por isso saiu da lista).
+  notch_redundant_atten_db: 40.0
+
+  eog_regression:
+    enabled: true
+    regressor_band_hz: [1.0, 5.0]
+    # Regredir sobre (Fp1+Fp2)/2 e (Fp2-Fp1) em vez de Fp1 e Fp2 em bruto:
+    # mesmos 2 g.l., mas mais perto dos geradores oculares e o canal-diferença
+    # transporta menos atividade cortical comum.
+    use_mean_diff_regressors: true
+    # Estimar os coeficientes só em segmentos com pestanejo e aplicá-los em todo
+    # o lado (melhoria clássica ao Gratton). Coeficientes estimados sobre tudo
+    # são diluídos pelos períodos sem pestanejo, onde a covariância é cortical.
+    fit_on_blink_segments_only: true
+    blink_detect_uv: 75.0
+    blink_pad_s: 0.5
+    # Se a regressão remover mais do que esta fração da variância de uma banda
+    # num canal de métrica, o marcador que depende dessa banda é sinalizado.
+    max_band_variance_removed: 0.25
+    # Segunda passagem com a regressão desligada, para a coluna delta_vs_noeog.
+    run_control_pass: true
+
+# --------------------------------------------------------------------------- #
+# Epocagem                                                        (SPEC 3.2)
+# --------------------------------------------------------------------------- #
+epochs:
+  power:
+    win_s: 4.0
+    hop_s: 2.0
+    welch_seg_s: 2.0          # -> resolução 0.5 Hz
+    welch_overlap: 0.5
+    window: hann
+  connectivity:               # cadência própria, mais lenta (BIOMARKERS.md B10)
+    win_s: 10.0
+    hop_s: 5.0
+    welch_seg_s: 1.0
+    welch_overlap: 0.5
+    min_segments: 19          # abaixo disto a MSC não é estimável
+
+# --------------------------------------------------------------------------- #
+# Gate de qualidade                                               (SPEC 3.3)
+# --------------------------------------------------------------------------- #
+# Aplicado DEPOIS da correção de EOG, para não rejeitar épocas que a regressão
+# salvou. Limiares sobre o sinal filtrado, exceto onde indicado.
+quality:
+  max_abs_uv: 120.0
+  max_step_uv: 30.0           # diferença entre amostras consecutivas
+  min_std_uv: 0.5             # elétrodo morto
+  max_emg_rel: 0.35           # potência relativa 30-45 Hz
+  max_line_rel: 0.30          # potência 48-52 relativa a 1-45
+  residual_blink_uv: 75.0     # pestanejo residual em 1-5 Hz em Fp1/Fp2 invalida F3/F4
+
+  # Os índices de EMG e de rede são calculados sobre uma cópia APENAS DETRENDED,
+  # nunca sobre o sinal filtrado a 1-45 Hz: depois do passa-banda, a banda 48-52
+  # está atenuada ~40 dB e o line_index nunca dispararia.
+  indices_from_unfiltered: true
+
+  motion:
+    accel_dev_g: 0.06         # |magnitude de aceleração - 1 g|
+    gyro_dps: 8.0
+    invalidates_all_channels: true
+
+  # Cobertura mínima de épocas boas na calibração antes de avisar o operador
+  min_calibration_coverage: 0.60
+
+  # SONOLÊNCIA. De olhos fechados, quatro minutos a relaxar com áudio calmo,
+  # uma fração das pessoas entra em N1 — e a assinatura de N1 (teta a subir,
+  # alfa a cair) confunde-se com meditação profunda. Substituiu a luminância
+  # como o confundimento que mais preocupa. Detetado por movimentos oculares
+  # lentos em Fp1/Fp2, medidos na cópia só detrended porque a banda 0.2-0.6 Hz
+  # está abaixo do passa-banda de 1-45 Hz. Implementação no M1.
+  drowsiness:
+    enabled: true
+    sem_band: slow_eye            # banda de movimentos oculares lentos
+    sem_relative_threshold: 0.15  # potência relativa em Fp1/Fp2 acima disto
+    # Peso do componente de dropout de alfa no índice composto de sonolência
+    alpha_dropout_weight: 0.5
+    sem_weight: 0.5
+
+# --------------------------------------------------------------------------- #
+# Monitor de contacto em tempo real                               (SPEC 1.4)
+# --------------------------------------------------------------------------- #
+# A única coisa, além da gravação, que corre durante a aquisição.
+# O Unicorn entrega uV com offset de eletrodo de 185-711 mV, diferente por canal:
+# medir sd/p2p sobre o sinal BRUTO dá deriva DC, não qualidade de contacto. A
+# janela é detrended antes de qualquer medida. Medido no M0 sobre dados reais.
+contact_monitor:
+  update_period_s: 1.0
+  window_s: 2.0
+  detrend_window: true
+  # O indicador de validação do dispositivo (canal 16) leu 1 em todas as
+  # amostras com os elétrodos completamente soltos. Não é usado.
+  trust_device_validation_flag: false
+
+  # A avaliação é feita sobre a janela JÁ FILTRADA (notch de 50 Hz + passa-banda
+  # de 1-45 Hz), porque é esse o sinal que a análise vai usar. Julgar o sinal
+  # bruto reprovava canais pelo ruído que o próprio pipeline remove a seguir.
+  grade_on_filtered: true
+
+  # Limiares para ELÉTRODOS SECOS num Unicorn, não para gel em sala blindada.
+  # EEG com gel dá 5-20 uV de sd depois de filtrar; um elétrodo seco decente dá
+  # 10-40; marginal mas utilizável vai até ~100. Ser restritivo aqui reprova
+  # canais que o teste de Berger mostra estarem a medir cérebro.
+  green:
+    max_std_uv: 60.0
+    max_p2p_uv: 500.0
+  yellow:
+    max_std_uv: 200.0
+    max_p2p_uv: 1500.0
+  min_std_uv: 0.5             # abaixo disto: elétrodo morto -> vermelho
+
+  # Elétrodo a flutuar: taxa de deriva medida no sinal CRU, antes do detrend.
+  # Tem de ser a deriva e não o pico-a-pico pós-detrend, porque uma rampa linear
+  # é precisamente o que o detrend remove — mediria zero. Ao vivo, com os
+  # elétrodos soltos, mediram-se 5 660 µV/s; com contacto são dezenas.
+  # Medido: 1958 uV/s com os elétrodos numa mesa e 5660 uV/s soltos numa cabeça.
+  # O limiar anterior de 2000 não apanhava o primeiro caso. Com contacto bom
+  # espera-se muito abaixo disto — reavaliar quando houver uma gravação boa.
+  max_drift_uv_per_s: 1000.0
+
+  # O índice de rede é INFORMATIVO. O notch de 50 Hz remove-a na análise, por
+  # isso rede alta não desqualifica um canal sozinha — só avisa que o ambiente
+  # está mau. Medido antes do notch, senão seria sempre ~0.
+  line_warn_ratio: 2.0
+
+  # Declive log-log com a banda alfa mascarada. EEG real decai; ruído sem
+  # estrutura dá espectro plano.
+  #
+  # É INFORMATIVO, não classifica. Numa janela de 2 s o estimador é ruidoso
+  # demais para decidir: com ruído branco puro os declives medidos espalham-se
+  # de -0,54 a +0,66 e alguns caem por acaso dentro do intervalo "plausível".
+  # Quem arbitra se um canal mede cérebro é o teste de Berger
+  # (scripts/compare_segments.py), que tem minutos de dados em vez de 2 s.
+  #
+  # Medido no sinal com notch mas SEM passa-banda, num intervalo bem dentro da
+  # banda: o rolloff do passa-banda impõe um declive negativo que faria ruído
+  # branco passar por 1/f.
+  slope_fit_range: [3.0, 30.0]
+  slope_welch_seg_s: 0.5      # mais segmentos = estimativa menos ruidosa
+  plausible_slope_range: [-4.0, -0.15]
+
+# --------------------------------------------------------------------------- #
+# Normalização                                                    (SPEC 3.4)
+# --------------------------------------------------------------------------- #
+normalize:
+  statistic: median_mad
+  mad_consistency_constant: 1.4826   # torna o MAD comparável a um desvio padrão
+  mad_fallback_iqr_constant: 1.349   # se MAD == 0
+  # Adequação da referência em função da duração de calibração escolhida.
+  # Nunca produzir um número a partir de uma referência insuficiente.
+  min_epochs_ok: 25           # potência: >= isto -> ref_quality = ok
+  min_epochs_thin: 10         # entre thin e ok -> thin (calculado, sinalizado)
+  min_windows_ok: 12          # conectividade
+  min_windows_thin: 8         # abaixo de min_windows_thin -> insufficient -> nan
+
+# --------------------------------------------------------------------------- #
+# Estatística                                                       (SPEC 5)
+# --------------------------------------------------------------------------- #
+stats:
+  # A inferência corre em UNIDADES CRUAS. O delta de Cliff é invariante a
+  # reescalonamentos monótonos, portanto normalizar antes não faz nada; o z é só
+  # para o eixo dos gráficos.
+  inference_on: raw
+  bootstrap_n: 2000
+  ci_level: 0.95
+  # O bootstrap reamostra TAMBÉM as épocas de calibração, para o IC incluir a
+  # incerteza da mediana/MAD de referência. Sem isto o IC sai estreito demais.
+  resample_calibration: true
+
+  block_bootstrap:
+    method: stationary        # stationary (Politis-Romano) | fixed
+    # Comprimento de bloco estimado dos dados (Politis-White), não fixado: a
+    # envolvente de potência alfa tem dependência de longo alcance que não morre
+    # aos 8 s. O valor escolhido é reportado por marcador.
+    length_selection: auto    # auto | fixed
+    fixed_length_s: 8.0       # só usado com length_selection: fixed
+    min_length_s: 20.0        # piso honesto para 4 min de meditação
+    max_length_s: 60.0
+    acf_threshold: 0.3679     # 1/e
+    # Amostras independentes minimas (n / comprimento do bloco) para um IC ser
+    # levado a serio. Abaixo disto a resposta honesta e "dados insuficientes",
+    # nao um intervalo estreito produzido a partir de nada.
+    min_effective_samples: 5.0
+
+  # Validacao do pipeline pelo efeito de Berger.
+  #
+  # A medida primaria e a potencia alfa ABSOLUTA, nao a relativa: a relativa
+  # divide por 1-45 Hz, e essa banda encolhe de olhos fechados porque ha menos
+  # pestanejos. Medido: no Fp1 a subida relativa foi +121 % contra +26 % de
+  # absoluta — a maior parte era o denominador.
+  #
+  # O limiar de magnitude e baixo porque a reatividade alfa frontal E pequena;
+  # num headset seco mediram-se +11 a +24 % em F3/F4/C3/C4 e +73 a +79 % em
+  # Pz/Oz, o que e o padrao occipital-maior que a fisiologia preve. Quem faz o
+  # trabalho de especificidade e a reatividade, nao a magnitude.
+  berger_min_log2: 0.15          # +11 % de alfa absoluto
+
+  # Especificidade de banda: quanto o alfa mudou ACIMA do que os flancos
+  # mudaram. Um artefacto move o espectro todo junto e da ~0; so uma alteracao
+  # especifica do alfa da valor positivo. E este o criterio que torna um efeito
+  # modesto defensavel.
+  berger_min_reactivity: 0.15
+  berger_flanks: [[5.0, 7.0], [15.0, 25.0]]
+  # Fracao minima de canais com reatividade positiva para o veredicto global.
+  # E este o discriminador que funciona: num controlo negativo o teste canal a
+  # canal ainda dispara em 3 de 8, mas so 4/8 ficam positivos — a divisao ao
+  # meio que a nula preve. Nos dados reais foram 8/8. Um Berger verdadeiro e
+  # global; um falso positivo e disperso.
+  berger_min_channel_agreement: 0.75
+
+  theil_sen: true
+  # Duas colunas distintas, porque medem coisas diferentes:
+  #  - odd_even: épocas alternadas, equilibrado no tempo, testa o estimador
+  #  - halves: 1a vs 2a metade, testa estacionariedade (NÃO é "replicação")
+  stability_odd_even: true
+  stability_halves: true
+
+  # Teste de nulo: parte a calibração ao meio e corre o pipeline metade-1 vs
+  # metade-2, onde o efeito verdadeiro é zero. Se demasiados marcadores derem IC
+  # que exclui zero, o maquinismo é anticonservador e queremos saber já.
+  null_check:
+    enabled: true
+    max_false_positive_rate: 0.10
+
+  connectivity_surrogates:
+    enabled: true
+    n_surrogates: 200
+    method: phase_randomization
+
+# --------------------------------------------------------------------------- #
+# Índice composto                                                 (SPEC 4.2)
+# --------------------------------------------------------------------------- #
+composite:
+  weights_eyes_open:   {alpha_rel: 0.35, beta_rel: -0.40, smr_rel: 0.25}
+  weights_eyes_closed: {alpha_rel: 0.50, beta_rel: -0.30, smr_rel: 0.20}
+  renormalize_on_nan: true
+
+# --------------------------------------------------------------------------- #
+# Marcadores                                                        (SPEC 4)
+# --------------------------------------------------------------------------- #
+markers:
+  ap_exponent:
+    # specparam por época custa ~640 ajustes e estoura sozinho o orçamento de
+    # 10 s. Estimador rápido por época; specparam completo por fase.
+    method_per_epoch: robust_loglog   # robust_loglog | specparam
+    method_per_phase: specparam
+    fit_range_hz: [2.0, 40.0]
+    # Com a regressão de EOG ligada, a aresta inferior do ajuste cai dentro da
+    # banda do regressor (1-5 Hz) e o expoente enviesa para baixo.
+    fit_range_hz_with_eog: [3.0, 40.0]
+    robust_loglog_peak_mask_iters: 3
+  lziv:
+    binarize: median
+    normalization: n_over_log2n      # padrão, comparável com a literatura
+  spectral_entropy:
+    band_hz: [1.0, 45.0]
+
+# --------------------------------------------------------------------------- #
+# Diagnóstico e agregação                                       (SPEC 5.2-5.3)
+# --------------------------------------------------------------------------- #
+diagnostics:
+  r_emg_red_threshold: 0.5    # |r| acima disto: marcador a medir músculo
+  r_motion_red_threshold: 0.5
+  # Com o ecrã preto nas duas fases, a luminância deixa de ser o confundimento
+  # que era. Esta coluna passa a seguir o estado do vídeo (atalho V), porque
+  # a luz do ecrã atravessa as pálpebras e mexe no alfa.
+  r_luminance_red_threshold: 0.5
+  # O confundimento dominante de olhos fechados.
+  r_drowsiness_red_threshold: 0.5
+  correlation_method: spearman
+
+aggregate:
+  min_sessions: 3             # não ordenar abaixo disto
+  consistency_binomial_ci: true
+
+# --------------------------------------------------------------------------- #
+# Relatório                                                         (SPEC 7)
+# --------------------------------------------------------------------------- #
+report:
+  profile: researcher         # researcher | participant
+  # Os que aparecem no ecra final e no seletor. Marcados no painel Ctrl+I;
+  # acrescentar la um marcador fa-lo aparecer aqui tambem.
+  #
+  # AVISO: esta escolha ainda NAO esta sustentada por dados. Na sessao de
+  # 10/09/2026 nenhum dos 14 marcadores teve IC a excluir zero com n_ef
+  # suficiente. Sao candidatos plausiveis, nao vencedores.
+  featured_markers: [alpha_rel, imcoh_alpha1, faa]
+
+  # Como se escolhe o que aparece em destaque no ecra final:
+  #   fixed          -> sempre os de featured_markers
+  #   top_variation  -> os que mais variaram NESTA sessao
+  #
+  # top_variation existe porque cada cerebro responde de forma diferente. Mas
+  # escolher pela maior variacao e escolher pelo maior ruido se nao se filtrar:
+  # ver analysis.rank_by_variation, que exclui os marcados como musculo, os de
+  # cobertura baixa, e ordena pela variacao dividida pela largura do IC.
+  #
+  # Isto so decide o que APARECE. O que se escreve continua a dizer "estavel"
+  # quando o IC cruza zero — o destaque nunca transforma incerto em certo.
+  featured_mode: top_variation
+  featured_count: 3
+
+  # Quantos biomarcadores aparecem no relatorio, em cartao e em barra: os que
+  # mais mudaram. Os restantes continuam em report.json — o corte e de
+  # apresentacao, nao de analise. Oito cartoes, seis deles a dizer que nada
+  # mudou, cansam antes de informar.
+  max_metrics: 6
+  language: pt
+  dpi: 150
+  figsize_in: [11.69, 8.27]   # A4 paisagem
+  participant_footer: >
+    Demonstração científica. Não é um diagnóstico nem uma avaliação clínica.
+
+# --------------------------------------------------------------------------- #
+# Interface                                                         (SPEC 8.1)
+# --------------------------------------------------------------------------- #
+ui:
+  # Inspetor de sinal (CTRL+I). Vigilância de elétrodos, nunca biomarcadores, e
+  # nunca visível para o participante.
+  inspector_trace_s: 5.0
+  inspector_trace_period_s: 0.1
+
+  # Aplicação de ecrã único: um computador, um monitor, sem janela de operador
+  # separada. O painel de investigador abre por cima com Ctrl+I.
+  single_screen: true
+  title: "Festival Bem Estar"
+  subtitle: "O Impacto dos Mantras no Cérebro"
+
+  shortcuts:
+    inspect_signal: "Ctrl+I"    # inspecionar o sinal em qualquer fase
+    toggle_video: "V"           # mostrar/esconder o vídeo (o áudio nunca para)
+    abort: "Esc"
+
+  # Marcação de segmentos durante a gravação. Cada tecla fecha o segmento
+  # anterior e abre um novo com este rótulo; o instante é registado com
+  # precisão de amostra em events.json.
+  #
+  # Servem para validar o pipeline: gravam-se dois estados conhecidos e
+  # pergunta-se ao pré-processamento se consegue distingui-los
+  # (scripts/compare_segments.py). O par olhos_abertos/olhos_fechados é o teste
+  # de Berger, e é o árbitro final da qualidade do sinal — vale mais do que
+  # qualquer semáforo.
+  marker_keys:
+    "1": olhos_abertos
+    "2": olhos_fechados
+    "3": mantra
+    "4": pestanejo
+    "5": trincar
+    "6": olhar_lateral
+    "0": descartar
+
+  # Par comparado por defeito na validação do pipeline.
+  validation_pair: [olhos_abertos, olhos_fechados]
+
+  participant_screen:
+    background: "#000000"
+    # A pessoa está de olhos fechados, portanto o temporizador é para o operador
+    # e para quem assiste à banca.
+    show_timer_during_calibration: true
+
+  operator_screen:
+    trace_s: 5.0
+
+  # Recolha de email para envio do relatório (SPEC 11). O EEG é dado
+  # biométrico: associá-lo a um identificador direto muda o enquadramento de
+  # RGPD, por isso o consentimento é explícito, a finalidade está escrita, e o
+  # email é guardado SEPARADO do sinal.
+  email:
+    enabled: true
+    retention_days: 30
+    purpose: >
+      Enviar-lhe o relatório desta demonstração. O endereço é guardado em
+      separado do registo de EEG, usado só para este envio, e apagado ao fim do
+      prazo indicado.
+
+    # O envio usa a conta Google que iniciou sessão no painel (Ctrl+I) — a
+    # mesma do Drive. Exige o âmbito gmail.send em drive.scope.
+    subject: "O teu relatório da Neroes"
+    sender_name: "Equipa Neroes"
+
+    # Onde o relatório fica acessível por link. Ver a secção `publish` no
+    # fim deste ficheiro.
+    #   github_pages -> publica num repositório público com o Pages ligado.
+    #                   O link ABRE no browser. É o modo a usar.
+    #   drive        -> envia o HTML para a pasta do Drive. O link é livre mas
+    #                   DESCARREGA: o Drive não serve HTML (medido:
+    #                   Content-Disposition: attachment). Serve de arquivo.
+    #   base_url     -> alguém põe o ficheiro num sítio já servido; a
+    #                   aplicação devolve o endereço mas não publica nada.
+    link_mode: github_pages
+    public_base_url: ""
+
+    # Prazo do envio inteiro (gerar a pagina, publicar, enviar).
+    # Medido: 1 s a gerar, 1,6 s a publicar, 1,2 s a partilhar. 120 s
+    # e folga larga. Com o Pages ha ainda a espera pela construcao do
+    # site (ate 90 s), por isso o prazo tem de a acomodar. O que este
+    # numero faz e transformar uma espera infinita numa falha visivel
+    # que diz em que passo ficou.
+    timeout_s: 180
+
+    # O relatório em anexo.
+    #   auto  -> anexa só quando o link não abre sozinho (modo `drive`).
+    #   true  -> anexa sempre.  false -> nunca anexa.
+    # `auto` é o que se quer: com o Pages ligado o link chega, e um anexo de
+    # 120 KB em cada email deixa de fazer sentido.
+    attach_report: auto
+
+    # O corpo. Está aqui e não no código porque é texto de comunicação, muda
+    # sem programador, e {nome} e {link} são as únicas coisas que a aplicação
+    # substitui.
+    body: |
+      Olá {nome},
+
+      Foi um prazer ter-te connosco no festival e mostrar-te o que a tua
+      atividade cerebral pode revelar com o poder dos mantras 🧠
+
+      Agora queremos continuar esta experiência contigo.
+
+      O teu relatório está aqui com todos os biomarcadores das várias
+      habilidades mentais:
+      {link}
+
+      E há mais:
+
+      → Segue a Neroes para acompanhares o que estamos a construir.
+      → Usa o teu código FBE2026 para teres acesso a um desconto exclusivo quando lançarmos a nossa tecnologia em ginásios e clínicas.
+      → Queres levar esta tecnologia para a tua empresa? Falamos contigo. Estamos a trabalhar para levar neurotecnologia ao workplace e transformar a forma como cuidamos da saúde mental.
+
+      A experiência acabou. A exploração da tua mente está só a começar.
+
+      Até breve,
+      Equipa Neroes
+      Turning people into heroes.
+
+# --------------------------------------------------------------------------- #
+# Envio para o Google Drive
+# --------------------------------------------------------------------------- #
+# Uma sessao de 5 min ocupa 5,1 MB em bruto e 2,1 MB comprimida (medido). Cem
+# sessoes sao 210 MB, o que nao e um problema de espaco. Envia-se para tirar os
+# dados das maquinas, nao para poupar disco.
+#
+# A API do Drive EXIGE autenticacao: uma pasta com "qualquer pessoa com o link
+# pode editar" nao permite escrever sem credenciais. O link da o id da pasta,
+# nao o direito de escrita.
+drive:
+  enabled: true              # ligar depois de preencher client_id e folder
+
+  # Cliente OAuth do tipo "Aplicacao de ambiente de trabalho", criado na Google
+  # Cloud Console com a Drive API activada. Para aplicacoes instaladas o
+  # "secret" nao e realmente secreto — a propria Google o diz.
+  client_id: "63309890128-o1842mql2akj88qpmoiq00ltihfa5g4s.apps.googleusercontent.com"
+  # O segredo NAO se escreve aqui: o repositorio e publico e o GitHub
+  # bloqueia um GOCSPX- num push. Vem da variavel de ambiente ou do
+  # ficheiro, tal como o token do GitHub. Ver o README.
+  client_secret: ""
+  client_secret_env: MANTRA_GOOGLE_CLIENT_SECRET
+  client_secret_file: data/google_client_secret.txt
+
+  # Id da pasta partilhada. E a parte final do link:
+  #   https://drive.google.com/drive/folders/<ID>?usp=sharing
+  folder_id: "1U4TSM6UPuz1OYoIlHHGLMN6kmZWTJP9f"
+
+  # Ambito minimo: so ficheiros criados por esta aplicacao, mais o envio de
+  # email (nao permite LER email nenhum). Se o envio para uma pasta
+  # pre-existente for recusado com 403, trocar drive.file por
+  # https://www.googleapis.com/auth/drive
+  #
+  # ATENCAO: mudar esta linha invalida o token guardado. O primeiro arranque
+  # a seguir pede login outra vez, uma vez por computador.
+  scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send"
+
+  # Onde fica o refresh token, para o login ser uma vez por computador.
+  token_file: data/drive_token.json
+
+  # Apagar a copia local DEPOIS de o Drive confirmar. Nunca antes.
+  delete_after_upload: true
+  max_attempts: 5
+  base_backoff_s: 20.0
+
+# --------------------------------------------------------------------------- #
+# Caminhos
+# --------------------------------------------------------------------------- #
+paths:
+  # Raiz local das sessões. Apontar para a pasta do Google Drive sincronizada
+  # pelo cliente de ambiente de trabalho, para o envio ser automático sem a
+  # aplicação precisar de credenciais nem de internet na banca.
+  drive_folder_name: FBE_BCI_mantra
+  sessions_dir: data/sessions
+  aggregate_dir: data/aggregate
+  assets_dir: assets
+  # Os mantras disponíveis, escolhidos no painel do investigador (CTRL+I).
+  # Ficheiros COM áudio: o som vem do vídeo, e é dele que o protocolo de olhos
+  # fechados depende. A tecla V esconde a imagem sem tocar na reprodução,
+  # portanto o som nunca é interrompido.
+  #
+  # A reprodução é em ciclo infinito. Um mantra mais curto do que a fase (o
+  # Om Namo Narayanaya dura 6 min) repete até a fase acabar, em vez de deixar
+  # a pessoa em silêncio a meio.
+  #
+  # `default: true` marca o que está pré-selecionado. Exatamente um.
+  mantras:
+    - id: sri_vitthala
+      label: "Sri Vitthala Giridhari Parabhramane Namah"
+      file: "assets/Sri-Vitthala-Giridhari-Parabhramane-Namah.mp4"
+      default: true
+    - id: om_namo
+      label: "Om Namo Narayanaya"
+      file: "assets/Om Namo Narayanaya.mp4"
+  # Só preencher se o som tiver de vir de um ficheiro separado do vídeo. Vazio =
+  # o áudio vem do próprio vídeo.
+  mantra_audio: ""
+  # O ficheiro dura 6 h (fundo ambiente em ciclo). Onde começar a reprodução.
+  mantra_start_offset_s: 0.0
+  logo: assets/logo.png
+  # Assinatura horizontal, para o cabecalho do relatorio e do email.
+  logo_lockup: assets/neroes-lockup-dark.png
+  # Deixas sintetizadas se não existirem (ver audio.py).
+  cue_dir: assets
+
+# --------------------------------------------------------------------------- #
+# Alojamento do relatorio
+# --------------------------------------------------------------------------- #
+# O link que vai no email tem de ABRIR, nao descarregar. O Drive nao serve
+# HTML, por isso o relatorio e publicado num alojamento estatico.
+#
+# GitHub Pages: gratuito, permanente, aceita dominio proprio, e a API de
+# conteudos e um PUT. Ver o README (seccao "O link do relatorio").
+#
+# O TOKEN NAO SE ESCREVE AQUI. Duas formas, por esta ordem:
+#   1. variavel de ambiente:  $ENV:MANTRA_GITHUB_TOKEN
+#   2. ficheiro ao lado do executavel, com o token e mais nada
+# O ficheiro fica fora do git (data/ esta no .gitignore) e nao viaja nos
+# pacotes que se copiam para os portateis do evento.
+publish:
+  github:
+    owner: "Duarte-Rodrigues-Neroes"
+    repo: "MantraReport"      # publico, com o Pages ligado em main / (root)
+    branch: main
+    folder: r                 # subpasta dentro do repositorio
+    token_env: MANTRA_GITHUB_TOKEN
+    token_file: data/github_token.txt
+    # Dominio proprio, se houver um CNAME configurado no repositorio.
+    # Vazio -> https://<owner>.github.io/<repo>/
+    base_url: ""
