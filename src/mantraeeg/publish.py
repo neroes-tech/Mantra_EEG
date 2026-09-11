@@ -75,45 +75,130 @@ def unguessable_name(code: str, suffix: str = ".html") -> str:
     return f"{code}-{secrets.token_hex(4)}{suffix}"
 
 
+def _network_reason(exc: OSError) -> str:
+    """Traduz a falha de rede para uma frase que aponte para a causa certa.
+
+    Tudo isto era "sem rede ao contactar o GitHub", numa maquina com internet
+    a funcionar — e mandava o operador procurar no sitio errado. Um tempo
+    esgotado, um DNS que nao resolve e um certificado recusado sao tres
+    problemas diferentes com tres solucoes diferentes.
+    """
+    import socket
+    import ssl
+
+    # urllib embrulha quase tudo em URLError e poe a causa verdadeira em
+    # .reason. Sem desembrulhar, todas as falhas sairiam como "URLError".
+    if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, BaseException):
+        inner = exc.reason
+        if isinstance(inner, OSError):
+            return _network_reason(inner)
+        return f"falha de rede ao contactar o GitHub ({inner})"
+
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return (
+            "o GitHub nao respondeu a tempo. A ligacao esta lenta ou "
+            "congestionada — normalmente resolve-se tentando outra vez"
+        )
+    if isinstance(exc, socket.gaierror):
+        return (
+            "nao consegui resolver o endereco api.github.com. E o DNS da "
+            "rede; acontece em wifi de eventos com portal de autenticacao "
+            "por abrir"
+        )
+    if isinstance(exc, ssl.SSLError):
+        return (
+            "a ligacao segura ao GitHub foi recusada. Costuma ser um proxy "
+            "ou um antivirus a inspecionar o trafego"
+        )
+    if isinstance(exc, ConnectionError):
+        return (
+            "a ligacao ao GitHub foi cortada. A rede pode estar a bloquear "
+            "api.github.com — ha wifi publico que bloqueia so esse"
+        )
+    return f"falha de rede ao contactar o GitHub ({type(exc).__name__})"
+
+
 def _github_request(
-    target: GitHubTarget, method: str, path: str, body: dict | None = None
+    target: GitHubTarget,
+    method: str,
+    path: str,
+    body: dict | None = None,
+    attempts: int = 3,
 ) -> dict:
-    request = urllib.request.Request(
-        f"{GITHUB_API}{path}",
-        data=json.dumps(body).encode() if body is not None else None,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {target.token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "mantra-eeg",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            raw = response.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:300]
-        if exc.code == 401:
-            raise PublishError(
-                "o GitHub recusou o token (401). Está expirado, ou foi copiado "
-                "com um espaço à frente."
-            ) from exc
-        if exc.code == 403:
-            raise PublishError(
-                "o GitHub recusou (403). O token precisa da permissão "
-                "'Contents: Read and write' neste repositório."
-            ) from exc
-        if exc.code == 404:
-            raise PublishError(
-                f"o GitHub não encontrou {target.owner}/{target.repo} (404). "
-                f"Confirme o nome, e que o token dá acesso a este repositório."
-            ) from exc
-        raise PublishError(f"o GitHub devolveu {exc.code}: {detail}") from exc
-    except OSError as exc:
-        raise PublishError(f"sem rede ao contactar o GitHub: {exc}") from exc
+    """Um pedido a API, com nova tentativa no que for transitorio.
+
+    Numa banca de festival a rede falha a meio de uma sessao e volta. Desistir
+    a primeira custava o relatorio de uma pessoa que esteve ali oito minutos,
+    por causa de um segundo mau de wifi.
+    """
+    import time
+
+    last: Exception | None = None
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(2.0 * attempt)
+        request = urllib.request.Request(
+            f"{GITHUB_API}{path}",
+            data=json.dumps(body).encode() if body is not None else None,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {target.token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "mantra-eeg",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                raw = response.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:300]
+            if exc.code == 401:
+                raise PublishError(
+                    "o GitHub recusou o token (401). Esta expirado, foi "
+                    "revogado, ou foi copiado com um espaco a frente."
+                ) from exc
+            if exc.code == 403 and (
+                "secondary rate limit" in detail.lower()
+                or "abuse" in detail.lower()
+            ):
+                # Escritas seguidas no mesmo repositorio: o GitHub trava e
+                # volta a deixar passar ao fim de pouco tempo. Nao e falta de
+                # permissao, e era isso que a mensagem antiga dizia.
+                last = exc
+                wait = float(exc.headers.get("Retry-After", 0) or 0)
+                time.sleep(max(wait, 5.0 * (attempt + 1)))
+                continue
+            if exc.code == 403:
+                raise PublishError(
+                    "o GitHub recusou (403). O token precisa da permissao "
+                    "'Contents: Read and write' neste repositorio."
+                ) from exc
+            if exc.code == 404:
+                raise PublishError(
+                    f"o GitHub nao encontrou {target.owner}/{target.repo} "
+                    f"(404). Confirme o nome, e que o token da acesso a este "
+                    f"repositorio."
+                ) from exc
+            if exc.code >= 500:
+                last = exc  # avaria do lado deles; vale a pena repetir
+                continue
+            raise PublishError(f"o GitHub devolveu {exc.code}: {detail}") from exc
+        except OSError as exc:
+            last = exc
+            continue
+
+    if isinstance(last, urllib.error.HTTPError):
+        raise PublishError(
+            f"o GitHub recusou {attempts} vezes seguidas ({last.code}). Se for "
+            f"403, sao escritas a mais em pouco tempo — espere um minuto."
+        ) from last
+    raise PublishError(
+        f"{_network_reason(last)} — tentei {attempts} vezes. O relatorio "
+        f"esta guardado e pode ser reenviado."
+    ) from last
 
 
 def _put_file(
