@@ -153,6 +153,16 @@ protocol:
 # --------------------------------------------------------------------------- #
 preprocess:
   detrend: linear
+  # O amplificador do Unicorn satura em +-750 000 uV. Medido numa sessao real
+  # (dispositivo 17): 0,2% das amostras exatamente nesse valor, em seis canais,
+  # num intervalo de cerca de um minuto. Como o passa-banda e aplicado com
+  # filtfilt, que e nao causal, esse degrau faz o filtro oscilar para os dois
+  # lados durante segundos e contamina os limiares globais — a cobertura final
+  # dessa sessao foi 0%. As amostras sao marcadas e substituidas ANTES de
+  # filtrar; as epocas afetadas continuam a ser rejeitadas pelo gate.
+  saturation_uv: 700000.0
+  saturation_pad_s: 0.5
+
   notch_freqs_hz: [50.0]      # 100 Hz removido: fora da banda 1-45, não faz nada
   notch_q: 30.0
   # Aplicar o notch DUAS vezes. Medido com os elétrodos numa mesa, onde a rede

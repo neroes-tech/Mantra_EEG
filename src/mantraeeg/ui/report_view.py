@@ -27,7 +27,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from ..analysis import AnalysisResult
+from ..analysis import AnalysisResult, percent_change
 from ..config import Config
 from ..report.audience import AudienceData, prepare
 
@@ -220,12 +220,16 @@ class ResultsView(QtWidgets.QWidget):
         labels, values, brushes = [], [], []
         for i, series in enumerate(shown):
             summary = self._result.summary_of(series.marker_id)
-            if summary is None or not np.isfinite(summary.pct_change):
+            if summary is None:
+                continue
+            # A mesma regua do relatorio. Antes punha-se aqui o delta absoluto
+            # num eixo rotulado "%": o Controlo emocional aparecia a ~0 no
+            # ecra e a -46 % no relatorio, a descrever a mesma sessao.
+            percent = percent_change(self._result, summary)
+            if not np.isfinite(percent):
                 continue
             labels.append(series.label)
-            values.append(
-                summary.delta if summary.is_signed else summary.pct_change
-            )
+            values.append(percent)
             colour = SERIES_COLOURS[
                 [s.marker_id for s in self._data.series].index(series.marker_id)
                 % len(SERIES_COLOURS)

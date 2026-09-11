@@ -48,13 +48,122 @@ def big_button(text: str, colour: str = ACCENT) -> QtWidgets.QPushButton:
     return button
 
 
+class DurationPicker(QtWidgets.QWidget):
+    """``[−]  240 s  [+]`` — dois botoes e um numero.
+
+    Substitui o ``QSpinBox``. As setas do QSpinBox deixam de funcionar assim
+    que se lhe aplica uma folha de estilos sem declarar a geometria dos
+    subcontrolos ``::up-button`` e ``::down-button``: o Qt passa a desenhar o
+    widget pela folha de estilos e as setas colapsam. O sintoma e sempre o
+    mesmo — a de baixo responde, a de cima nao.
+
+    Dois botoes normais nao tem subcontrolos, nao tem geometria implicita, e
+    dao alvos de 48 px, que e o que uma banca tactil precisa. O campo aceita
+    escrita directa para quem quiser um valor que nao esteja no passo.
+    """
+
+    valueChanged = QtCore.pyqtSignal(int)
+
+    def __init__(
+        self,
+        value: int,
+        minimum: int = 1,
+        maximum: int = 24 * 60 * 60,
+        step: int = 5,
+        compact: bool = False,
+    ) -> None:
+        super().__init__()
+        self._min, self._max, self._step = minimum, maximum, step
+        size = 38 if compact else 48
+        font = 15 if compact else 20
+
+        row = QtWidgets.QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6 if compact else 10)
+
+        self._minus = self._button("−", size)
+        self._minus.clicked.connect(lambda: self._nudge(-self._step))
+        row.addWidget(self._minus)
+
+        self._field = QtWidgets.QLineEdit(str(value))
+        self._field.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._field.setValidator(QtGui.QIntValidator(minimum, maximum, self))
+        self._field.setMinimumWidth(68 if compact else 92)
+        self._field.setFixedHeight(size)
+        self._field.setStyleSheet(
+            f"QLineEdit{{background:#161a22; color:{FG}; border:1px solid "
+            f"#232a37; border-radius:8px; font-size:{font}px;"
+            f"font-family:'Segoe UI',sans-serif;}}"
+            "QLineEdit:focus{border-color:#7fb2ff;}"
+        )
+        self._field.editingFinished.connect(self._on_typed)
+        row.addWidget(self._field, stretch=1)
+
+        suffix = label("s", font - 3, MUTED)
+        suffix.setFixedWidth(14)
+        row.addWidget(suffix)
+
+        self._plus = self._button("+", size)
+        self._plus.clicked.connect(lambda: self._nudge(self._step))
+        row.addWidget(self._plus)
+
+    def _button(self, text: str, size: int) -> QtWidgets.QPushButton:
+        button = QtWidgets.QPushButton(text)
+        button.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        button.setFixedSize(size, size)
+        button.setAutoRepeat(True)
+        button.setAutoRepeatDelay(400)
+        button.setAutoRepeatInterval(90)
+        button.setStyleSheet(
+            f"QPushButton{{background:#1d2230; color:{FG}; border:1px solid "
+            f"#2b3344; border-radius:8px; font-size:{int(size * 0.5)}px;"
+            f"font-weight:600; font-family:'Segoe UI',sans-serif;}}"
+            "QPushButton:hover{background:#2a3142; border-color:#7fb2ff;}"
+            "QPushButton:pressed{background:#7fb2ff; color:#07080b;}"
+        )
+        return button
+
+    def _nudge(self, delta: int) -> None:
+        self.setValue(self.value() + delta)
+
+    def _on_typed(self) -> None:
+        self.setValue(self.value())
+
+    def value(self) -> int:
+        try:
+            return max(self._min, min(self._max, int(self._field.text() or 0)))
+        except ValueError:
+            return self._min
+
+    def setValue(self, value: int) -> None:
+        value = max(self._min, min(self._max, int(value)))
+        if self._field.text() != str(value):
+            self._field.setText(str(value))
+        self._minus.setEnabled(value > self._min)
+        self._plus.setEnabled(value < self._max)
+        self.valueChanged.emit(value)
+
+    def blockSignals(self, block: bool) -> bool:  # noqa: N802
+        self._field.blockSignals(block)
+        return super().blockSignals(block)
+
+
 def format_time(seconds: float) -> str:
     total = max(int(seconds + 0.999), 0)
     return f"{total // 60}:{total % 60:02d}"
 
 
 class Screen(QtWidgets.QWidget):
-    """Base: fundo escuro e conteúdo centrado."""
+    """Base: fundo escuro, conteúdo centrado, margens que encolhem.
+
+    As margens eram 90 px fixas de cada lado. Num portátil de 1366 px com
+    escala a 125 % sobram 900 px lógicos, e 180 px só de goteira cortavam o
+    conteúdo. Passam a ser 5 % da largura, com um piso de 16 e um teto de 90.
+    """
+
+    #: Abaixo disto a interface passa a compacta: menos goteira, fontes
+    #: menores, e os passos do protocolo empilham-se.
+    NARROW = 1100
 
     def __init__(self) -> None:
         super().__init__()
@@ -62,6 +171,16 @@ class Screen(QtWidgets.QWidget):
         self.body = QtWidgets.QVBoxLayout(self)
         self.body.setContentsMargins(90, 70, 90, 70)
         self.body.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        side = max(16, min(90, int(self.width() * 0.05)))
+        top = max(20, min(70, int(self.height() * 0.07)))
+        self.body.setContentsMargins(side, top, side, top)
+        self.on_resize(self.width() < self.NARROW)
+
+    def on_resize(self, compact: bool) -> None:
+        """Gancho para os ecrãs que têm de mudar mais do que as margens."""
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +243,7 @@ class ExplainScreen(Screen):
         self._steps.setSpacing(0)
         self.body.addLayout(self._steps)
         self._boxes: list[tuple[QtWidgets.QLabel, QtWidgets.QLabel]] = []
+        self._arrows: list[QtWidgets.QLabel] = []
         for index, (title, note) in enumerate(
             (
                 ("Calibração", "olhos fechados, em silêncio"),
@@ -133,9 +253,10 @@ class ExplainScreen(Screen):
         ):
             if index:
                 arrow = label("→", 30, "#3a4152")
-                arrow.setFixedWidth(60)
+                arrow.setFixedWidth(40)
+                self._arrows.append(arrow)
                 self._steps.addWidget(arrow)
-            self._steps.addWidget(self._step_box(title, note))
+            self._steps.addWidget(self._step_box(title, note), stretch=1)
 
         self.body.addSpacing(40)
         self.body.addWidget(self._duration_row(), alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -158,7 +279,15 @@ class ExplainScreen(Screen):
         box.setStyleSheet(
             "QFrame{background:#11141b; border:1px solid #1e2431; border-radius:14px;}"
         )
-        box.setFixedWidth(280)
+        # Largura flexivel, nao fixa: tres caixas de 280 px mais duas setas de
+        # 60 exigiam 1140 px so para a linha, e num ecra pequeno os numeros
+        # ficavam cortados pela moldura.
+        box.setMinimumWidth(160)
+        box.setMaximumWidth(320)
+        box.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         layout = QtWidgets.QVBoxLayout(box)
         layout.setContentsMargins(22, 24, 22, 24)
         layout.addWidget(label(title, 24, FG, bold=True))
@@ -173,7 +302,7 @@ class ExplainScreen(Screen):
         holder = QtWidgets.QWidget()
         row = QtWidgets.QHBoxLayout(holder)
         row.setSpacing(26)
-        self._spins: dict[str, QtWidgets.QSpinBox] = {}
+        self._spins: dict[str, DurationPicker] = {}
         proto = self._cfg.protocol
         for key, text, value in (
             ("calibration", "calibração", proto.calibration_s),
@@ -182,24 +311,28 @@ class ExplainScreen(Screen):
         ):
             column = QtWidgets.QVBoxLayout()
             column.addWidget(label(text, 15, MUTED))
-            spin = QtWidgets.QSpinBox()
             # Sem limites impostos: a duração é livre. Acima da duração do
             # vídeo, ele repete em ciclo.
-            spin.setRange(1, 24 * 60 * 60)
-            spin.setSuffix(" s")
-            spin.setSingleStep(5)
-            spin.setValue(int(value))
-            spin.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            spin.setStyleSheet(
-                "QSpinBox{background:#161a22; color:#eef1f7; border:1px solid "
-                "#232a37; border-radius:8px; padding:8px; font-size:18px;}"
-            )
-            spin.valueChanged.connect(self._emit)
+            spin = DurationPicker(int(value))
+            spin.valueChanged.connect(lambda _: self._emit())
             self._spins[key] = spin
             column.addWidget(spin)
             row.addLayout(column)
         self._refresh_boxes()
         return holder
+
+    def on_resize(self, compact: bool) -> None:
+        """Num ecrã estreito o número encolhe e as setas entre passos saem."""
+        for duration_label, _ in self._boxes:
+            duration_label.setStyleSheet(
+                duration_label.styleSheet().replace("font-size:40px", "font-size:28px")
+                if compact
+                else duration_label.styleSheet().replace(
+                    "font-size:28px", "font-size:40px"
+                )
+            )
+        for arrow in self._arrows:
+            arrow.setVisible(not compact)
 
     def _emit(self) -> None:
         self._refresh_boxes()

@@ -209,6 +209,8 @@ class EogRegressionCfg:
 @dataclass(frozen=True)
 class PreprocessCfg:
     detrend: str
+    saturation_uv: float
+    saturation_pad_s: float
     notch_freqs_hz: tuple[float, ...]
     notch_q: float
     notch_passes: int
@@ -797,6 +799,8 @@ def load_config(path: str | Path = "config/default.yaml") -> Config:
     eog = pp["eog_regression"]
     preprocess = PreprocessCfg(
         detrend=str(pp["detrend"]),
+        saturation_uv=float(pp.get("saturation_uv", 700000.0)),
+        saturation_pad_s=float(pp.get("saturation_pad_s", 0.5)),
         notch_freqs_hz=tuple(float(x) for x in pp["notch_freqs_hz"]),
         notch_q=float(pp["notch_q"]),
         notch_passes=int(pp["notch_passes"]),

@@ -52,6 +52,14 @@ class Preprocessed:
     t0_s: float
     eog_applied: bool
     eog_report: Mapping[str, Any] = field(default_factory=dict)
+    #: Máscara das amostras em que o amplificador saturou, já alinhada com os
+    #: arrays acima. O gate de qualidade rejeita as épocas que lhe tocam.
+    saturation: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 0), dtype=bool)
+    )
+    #: Fração do registo inteiro que estava saturada, para o diagnóstico e
+    #: para o aviso ao operador.
+    saturated_fraction: float = 0.0
 
     @property
     def n_samples(self) -> int:
@@ -69,6 +77,59 @@ class Preprocessed:
 # --------------------------------------------------------------------------- #
 # Blocos
 # --------------------------------------------------------------------------- #
+def find_saturation(
+    raw_eeg: np.ndarray, rail_uv: float, pad_s: float, sfreq: float
+) -> np.ndarray:
+    """Máscara ``(n_ch, n)`` das amostras em que o amplificador bateu no fundo.
+
+    O Unicorn satura em ±750 000 µV. Uma sessão real trazida da banca
+    (dispositivo 17) tinha 0,2 % das amostras exatamente nesse valor, em seis
+    dos oito canais, concentradas em cerca de um minuto: um pico de 166 mV
+    pico a pico no meio de uma gravação que, fora disso, era utilizável.
+
+    **O estrago não fica no minuto mau.** O passa-banda é aplicado com
+    ``filtfilt``, que é não causal: um degrau de 750 mV faz o filtro oscilar
+    para os dois lados durante muitos segundos, e o resíduo entra no cálculo
+    do MAD e dos limiares, que são globais. Nessa sessão a cobertura final foi
+    **0 %** — a análise inteira foi perdida por causa de um minuto.
+
+    Por isso as amostras são marcadas **antes** de filtrar, e substituídas
+    pela mediana do canal em :func:`excise`. Não é inventar sinal: é impedir
+    que sinal que não existe contamine o que existe. As épocas afetadas são
+    rejeitadas a jusante na mesma, pelo gate de qualidade.
+
+    ``pad_s`` alarga a máscara para cada lado, porque a aproximação ao limite
+    e a recuperação também não são sinal.
+    """
+    raw = np.asarray(raw_eeg, dtype=np.float64)
+    mask = np.abs(raw) >= rail_uv
+    pad = int(round(pad_s * sfreq))
+    if pad <= 0 or not mask.any():
+        return mask
+    # Dilatação por convolução: mais barato do que percorrer os intervalos.
+    kernel = np.ones(2 * pad + 1)
+    for i in range(mask.shape[0]):
+        if mask[i].any():
+            mask[i] = np.convolve(mask[i].astype(float), kernel, mode="same") > 0
+    return mask
+
+
+def excise(raw_eeg: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Substitui as amostras marcadas pela mediana do próprio canal.
+
+    Um canal inteiro marcado fica a zeros — não há mediana de nada, e um canal
+    saturado do princípio ao fim não tem informação a preservar.
+    """
+    out = np.array(raw_eeg, dtype=np.float64, copy=True)
+    for i in range(out.shape[0]):
+        bad = mask[i]
+        if not bad.any():
+            continue
+        good = out[i][~bad]
+        out[i][bad] = float(np.median(good)) if good.size else 0.0
+    return out
+
+
 def detrend(x: np.ndarray, kind: str = "linear") -> np.ndarray:
     """Remove média e tendência linear por canal.
 
@@ -243,6 +304,14 @@ def preprocess(
     sfreq = cfg.device.sfreq_nominal
     raw_eeg = np.asarray(raw_eeg, dtype=np.float64)
 
+    # Saturação primeiro, antes de qualquer filtro: ver find_saturation.
+    saturation = find_saturation(
+        raw_eeg, pp.saturation_uv, pp.saturation_pad_s, sfreq
+    )
+    saturated_fraction = float(saturation.mean())
+    if saturated_fraction > 0:
+        raw_eeg = excise(raw_eeg, saturation)
+
     detrended = detrend(raw_eeg, pp.detrend)
     notched = notch(detrended, sfreq, pp.notch_freqs_hz, pp.notch_q, pp.notch_passes)
     filtered = bandpass(notched, sfreq, pp.bandpass_hz, pp.bandpass_order)
@@ -270,6 +339,8 @@ def preprocess(
     span = slice(edge, filtered.shape[1] - edge) if edge else slice(None)
 
     return Preprocessed(
+        saturation=np.ascontiguousarray(saturation[:, span]),
+        saturated_fraction=saturated_fraction,
         clean=np.ascontiguousarray(filtered[:, span]),
         detrended=np.ascontiguousarray(detrended[:, span]),
         notched=np.ascontiguousarray(notched[:, span]),

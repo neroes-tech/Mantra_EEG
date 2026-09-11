@@ -24,6 +24,7 @@ from ..drive import DriveClient, DriveError
 from ..storage import UploadQueue
 from ..session import SessionPlan
 from .inspector import SignalInspector
+from .screens import DurationPicker
 
 PANEL = "#141821"
 TEXT = "#c8ccd4"
@@ -133,7 +134,7 @@ class ResearcherPanel(QtWidgets.QDialog):
             "QGroupBox::title{subcontrol-origin:margin; left:12px;}"
         )
         row = QtWidgets.QHBoxLayout(box)
-        self._spins: dict[str, QtWidgets.QSpinBox] = {}
+        self._spins: dict[str, DurationPicker] = {}
         for key, text, value in (
             ("calibration", "calibração", self._plan.calibration_s),
             ("mantra", "mantra", self._plan.mantra_s),
@@ -141,14 +142,10 @@ class ResearcherPanel(QtWidgets.QDialog):
         ):
             column = QtWidgets.QVBoxLayout()
             column.addWidget(QtWidgets.QLabel(text))
-            spin = QtWidgets.QSpinBox()
-            spin.setRange(1, 24 * 60 * 60)   # sem limites impostos
-            spin.setSuffix(" s")
-            spin.setValue(int(value))
-            spin.setStyleSheet(
-                f"background:#1d2230; color:{TEXT}; border:0; padding:6px;"
-            )
-            spin.valueChanged.connect(self._emit_plan)
+            # O mesmo seletor do ecrã de explicação, pela mesma razão: com
+            # folha de estilos, a seta de cima do QSpinBox deixa de responder.
+            spin = DurationPicker(int(value), compact=True)
+            spin.valueChanged.connect(lambda _: self._emit_plan())
             self._spins[key] = spin
             column.addWidget(spin)
             row.addLayout(column)

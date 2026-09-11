@@ -340,6 +340,38 @@ def baseline_spread(result: AnalysisResult, marker_id: str) -> float:
     return mad if np.isfinite(mad) and mad > 0 else float("nan")
 
 
+def percent_change(result: AnalysisResult, summary: MarkerSummary) -> float:
+    """A variação percentual, ou ``nan`` quando a percentagem não diz nada.
+
+    Uma percentagem é a variação a dividir pela linha de base, e só significa
+    alguma coisa se a linha de base for uma quantidade com zero verdadeiro e
+    longe dele. Duas situações em que não é:
+
+    - **Quantidades com sinal** (``SIGNED_MARKERS``). O ALAY é
+      ``ln P[F4] − ln P[F3]``: já é uma razão, e o seu zero é arbitrário — é
+      o ponto onde os dois hemisférios coincidem, não uma ausência de nada.
+      Dividir por ele é dividir pela distância a uma origem convencionada.
+      Numa sessão real deu **−46 %** para uma diferença de 0,002, enquanto o
+      mesmo marcador media 0,2 desvios da oscilação normal. Os dois números
+      descreviam a mesma coisa e contavam histórias opostas.
+    - **Linhas de base indistinguíveis de zero**, a menos de uma dispersão:
+      o denominador é ruído e o quociente explode.
+
+    Esta é a régua única. O relatório e o ecrã final chamam-na os dois, senão
+    voltam a discordar — foi assim que um mesmo marcador apareceu a −46 % num
+    sítio e a ~0 no outro.
+    """
+    if summary.marker.id in SIGNED_MARKERS:
+        return float("nan")
+    baseline = summary.baseline
+    spread = baseline_spread(result, summary.marker.id)
+    if not np.isfinite(baseline) or not np.isfinite(summary.active):
+        return float("nan")
+    if not np.isfinite(spread) or abs(baseline) <= spread:
+        return float("nan")
+    return float((summary.active - baseline) / baseline * 100.0)
+
+
 def rank_by_variation(
     result: AnalysisResult,
     cfg: Config,
@@ -383,11 +415,9 @@ def rank_by_variation(
 
         spread = baseline_spread(result, marker.id)
         change = summary.active - summary.baseline
-        percent_is_meaningful = (
-            np.isfinite(spread) and abs(summary.baseline) > spread
-        )
-        if percent_is_meaningful:
-            score = abs(change / summary.baseline) * 100.0
+        percent = percent_change(result, summary)
+        if np.isfinite(percent):
+            score = abs(percent)
         elif np.isfinite(spread):
             # Escala diferente da percentagem, por isso estes ficam atrás por
             # construção — o que é o que se quer: o destaque prefere o que se

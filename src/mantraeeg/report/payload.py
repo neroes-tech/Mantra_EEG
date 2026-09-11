@@ -34,6 +34,7 @@ from ..analysis import (
     AnalysisResult,
     MarkerSummary,
     baseline_spread as _baseline_spread,
+    percent_change,
     rank_by_variation,
 )
 from ..config import Config
@@ -139,27 +140,6 @@ def _sparkline_values(
     active = np.asarray(series.phases) == PHASE_ACTIVE
     fraction = float(np.argmax(active)) / len(filled) if active.any() else None
     return [float(v) for v in filled], fraction
-
-
-def _percent(summary: MarkerSummary, spread: float) -> float:
-    """A variação percentual — só quando a percentagem quer dizer alguma coisa.
-
-    Uma percentagem é a razão entre a variação e a linha de base, e explode
-    quando a linha de base está perto de zero. O ALAY vive perto de zero por
-    construção (é um log-ratio entre dois hemisférios parecidos): 0,023 →
-    0,027 sai "+20 %" e lê-se como um quinto a mais de alguma coisa, quando a
-    diferença é menor do que a oscilação normal da própria medida.
-
-    O critério é esse mesmo: a linha de base tem de estar a mais de uma
-    dispersão de distância do zero. Onde não está, devolve ``nan`` e o
-    relatório mostra a diferença absoluta em vez de uma percentagem falsa.
-    """
-    baseline = summary.baseline
-    if not np.isfinite(baseline) or not np.isfinite(spread):
-        return float("nan")
-    if abs(baseline) <= spread:
-        return float("nan")
-    return float((summary.active - baseline) / baseline * 100.0)
 
 
 def _interpretation(summary: MarkerSummary, cfg: Config) -> str:
@@ -393,7 +373,7 @@ def build(
         marker = summary.marker
         decimals = _decimals(marker.id, summary.baseline)
         spread = _baseline_spread(result, marker.id)
-        percent = _percent(summary, spread)
+        percent = percent_change(result, summary)
         standardised = (
             (summary.active - summary.baseline) / spread
             if np.isfinite(spread)
