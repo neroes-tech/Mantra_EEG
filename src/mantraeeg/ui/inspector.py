@@ -237,21 +237,52 @@ class SignalInspector(QtWidgets.QWidget):
         self._render_table(report)
 
     def _render_banner(self, report: ContactReport) -> None:
-        needed = self._cfg.montage.min_good_channels_to_start
+        """Um semáforo por elétrodo. **Não é uma autorização para começar.**
+
+        Isto dizia "PRONTO" ou "AINDA NÃO — mínimo 4 canais", o que se lia
+        como uma condição de arranque. Não é, e não pode ser: numa banca de
+        festival grava-se com o que houver, e uma sessão com três elétrodos
+        maus é uma sessão com três elétrodos maus, não uma sessão proibida. A
+        aplicação nunca bloqueou nada — mas a frase prometia uma regra que não
+        existe e punha o operador à espera de uma luz verde que podia nunca
+        vir.
+
+        O que fica é o estado, por elétrodo, sem veredicto: quem está à frente
+        do participante é que decide se arranca ou se volta a molhar os
+        sensores.
+        """
         if report.global_warning:
             self._banner.setStyleSheet(
                 "padding:10px; border-radius:6px; background:#3b1d1b; color:#f2b8b5;"
             )
             self._banner.setText(f"<b>SEM CONTACTO</b><br>{report.global_warning}")
             return
-        ok = report.n_good >= needed
+
+        dots = "".join(
+            f"<span style='background:{LEVEL_COLOUR[ch.level]}; color:#07080b;"
+            f"padding:3px 9px; border-radius:9px; font-weight:600;"
+            f"font-size:12px;'>&nbsp;{ch.name}&nbsp;</span>&nbsp;"
+            for ch in report.channels
+        )
+        counts = {"green": 0, "yellow": 0, "red": 0}
+        for ch in report.channels:
+            counts[ch.level] = counts.get(ch.level, 0) + 1
+        summary = " · ".join(
+            f"{counts[level]} {word}"
+            for level, word in (
+                ("green", "bons"),
+                ("yellow", "razoáveis"),
+                ("red", "maus"),
+            )
+            if counts[level]
+        )
+
         self._banner.setStyleSheet(
-            "padding:10px; border-radius:6px; color:#dfe4ec; background:"
-            + ("#17331f" if ok else "#33291a")
+            "padding:10px; border-radius:6px; color:#dfe4ec; background:#1a1f29;"
         )
         text = (
-            f"<b>{'PRONTO' if ok else 'AINDA NÃO'}</b> — {report.n_good} de "
-            f"{len(report.channels)} canais utilizáveis (mínimo {needed})"
+            f"{dots}<br><span style='color:#9aa3b2; font-size:12px;'>"
+            f"contacto dos elétrodos — {summary}</span>"
         )
         if report.line_warning:
             text += f"<br><span style='color:#e0c07a'>{report.line_warning}</span>"

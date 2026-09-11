@@ -15,3 +15,9 @@ assets/*.wav
 
 # O lockup vem do design system e e preciso no relatorio e no email.
 !assets/neroes-lockup-dark.png
+
+# Pastas de construcao alternativas (build_exe.py --distpath)
+dist_novo/
+dist_*/
+*.zip
+!relatoriofestival.zip

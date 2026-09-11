@@ -45,7 +45,10 @@ def test_real_recording_is_usable_after_filtering(monitor, real_recording, cfg):
     """
     report = monitor.evaluate(window_from(real_recording, cfg))
     assert report.channels, "o monitor nao avaliou nenhum canal"
-    assert report.n_good >= cfg.montage.min_good_channels_to_start, (
+    # Quatro dos oito: metade da touca. Nao e uma condicao de arranque — a
+    # aplicacao nao bloqueia nada — e so a afirmacao de que esta gravacao
+    # tinha contacto a serio, ao contrario das que vieram da banca.
+    assert report.n_good >= 4, (
         f"canais utilizaveis a menos: "
         f"{[(c.name, c.level, c.reason) for c in report.channels]}"
     )

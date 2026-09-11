@@ -28,6 +28,8 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from ..spectral import welch_psd
+
 from ..analysis import (
     PHASE_ACTIVE,
     PHASE_BASELINE,
@@ -142,6 +144,87 @@ def _sparkline_values(
     return [float(v) for v in filled], fraction
 
 
+def _spectrum(result: AnalysisResult, cfg: Config) -> dict[str, Any]:
+    """O espectro médio do sinal da pessoa, nos canais de métrica.
+
+    **Descritivo, não comparativo.** Não depende de uma linha de base nem de
+    haver diferença entre fases, portanto continua a ser verdade quando a
+    comparação deixa de se sustentar. É o que se mostra a alguém cuja
+    gravação apanhou o palco ao lado: isto é o teu sinal, e é mesmo teu.
+
+    Só entram as épocas que passaram no gate. Com poucas, a curva é ruidosa —
+    e é suposto parecer ruidosa.
+    """
+    pre = result.preprocessed
+    if pre is None:
+        return {}
+    quality = result.quality
+    rows = [
+        quality.name_to_row[n]
+        for n in cfg.montage.metric_channels
+        if n in quality.name_to_row
+    ]
+    if not rows:
+        return {}
+
+    good = quality.channel_ok[rows].all(axis=0)
+    starts = quality.starts[good]
+    if starts.size == 0:
+        return {}
+
+    win = quality.win_samples
+    segments = [
+        pre.clean[rows, start : start + win]
+        for start in starts
+        if start + win <= pre.clean.shape[1]
+    ]
+    if not segments:
+        return {}
+
+    freqs, psd = welch_psd(
+        np.concatenate(segments, axis=1), pre.sfreq, 4.0, 0.5
+    )
+    band = (1.0, 40.0)
+    keep = (freqs >= band[0]) & (freqs <= band[1])
+    mean_psd = np.nanmean(psd[:, keep], axis=0)
+    if not np.any(np.isfinite(mean_psd)) or np.nanmax(mean_psd) <= 0:
+        return {}
+
+    return {
+        "freqs": [round(float(f), 2) for f in freqs[keep]],
+        # Em dB: o espectro cai como 1/f e numa escala linear as bandas
+        # rápidas ficavam coladas ao eixo.
+        "db": [round(float(10 * np.log10(max(v, 1e-12))), 2) for v in mean_psd],
+        "bands": {
+            "theta": list(cfg.bands["theta"]),
+            "alpha": list(cfg.bands["alpha"]),
+            "beta": list(cfg.bands["beta"]),
+        },
+        "nEpochs": int(starts.size),
+    }
+
+
+def _coverage_trace(result: AnalysisResult, cfg: Config) -> dict[str, Any]:
+    """Onde, ao longo da sessão, houve leitura fiável.
+
+    O que se mostra quando não há mais nada honesto para mostrar: isto foi o
+    que conseguimos gravar, e estes foram os bocados aproveitáveis.
+    """
+    quality = result.quality
+    rows = [
+        quality.name_to_row[n]
+        for n in cfg.montage.metric_channels
+        if n in quality.name_to_row
+    ]
+    if not rows or quality.times_s.size == 0:
+        return {}
+    good = quality.channel_ok[rows].all(axis=0)
+    return {
+        "times": [round(float(t), 1) for t in quality.times_s],
+        "ok": [bool(v) for v in good],
+    }
+
+
 def _interpretation(summary: MarkerSummary, cfg: Config) -> str:
     """O que a medida capta, e — só quando houve — o que mudou.
 
@@ -200,6 +283,56 @@ GLOSSARY = [
 ]
 
 
+def _reading_low_signal(
+    context: ReportContext, coverage: float, tier: str
+) -> list[str]:
+    """A leitura quando a comparação não se sustenta.
+
+    Não é a leitura normal com uma ressalva colada: é outra leitura. A frase
+    "nenhum biomarcador mudou" está errada aqui — não é que nada mudou, é que
+    **nada pôde ser medido**, e as duas coisas não se dizem da mesma maneira a
+    quem esteve oito minutos sentado.
+    """
+    percent = f"{coverage * 100:.0f}%"
+    ambient = (
+        "Numa banca de festival isto acontece: palcos, colunas e "
+        "instrumentação elétrica a poucos metros injetam no sensor um sinal "
+        "muito maior do que o do cérebro, e basta um elétrodo a perder "
+        "contacto com o couro cabeludo para a leitura desse ponto se perder."
+    )
+
+    if tier == "descriptive":
+        return [
+            f"O sensor deu leitura fiável em {percent} do tempo. É pouco para "
+            f"comparar o antes com o durante — uma comparação precisa de uma "
+            f"referência sólida dos dois lados, e aqui não a há. O que se "
+            f"segue não são variações: é o teu sinal, tal como foi gravado.",
+            ambient,
+            "O que está nos gráficos é real e é teu: o espectro mostra em que "
+            "ritmos a tua atividade se concentrou, e a linha mostra onde "
+            "houve leitura ao longo da sessão. O que não fazemos é dizer-te "
+            "que subiu ou desceu, porque com esta quantidade de sinal isso "
+            "seria uma frase inventada.",
+            "Se quiseres o relatório completo, vale a pena repetir a sessão "
+            "com os sensores bem molhados e afastados da fonte de ruído. São "
+            "os mesmos minutos, e a diferença na leitura é enorme.",
+        ]
+
+    return [
+        f"Não foi possível medir a tua atividade cerebral nesta sessão: o "
+        f"sensor só deu leitura fiável em {percent} do tempo.",
+        ambient,
+        "Por isso não há números neste relatório. Podíamos apresentar-te "
+        "alguns — mas com o sensor sem contacto os valores seriam ruído "
+        "ambiente, não a tua atividade, e duas pessoas diferentes receberiam "
+        "resultados diferentes gerados pela mesma ausência de sinal. "
+        "Preferimos dizer-te isto.",
+        "O gráfico em baixo mostra o que conseguimos gravar. Se puderes "
+        "voltar à banca, repetimos a sessão — leva os mesmos minutos e "
+        "normalmente basta molhar bem os sensores.",
+    ]
+
+
 def _join(names: list[str]) -> str:
     """«a, b e c» — a vírgula serial não existe em português."""
     if not names:
@@ -215,6 +348,7 @@ def _reading(
     coverage: float,
     cfg: Config,
     metrics: list[dict[str, Any]],
+    tier: str = "full",
 ) -> list[str]:
     """A leitura da sessão, em prosa, construída a partir dos números.
 
@@ -236,6 +370,9 @@ def _reading(
     # página, e nomeá-los aqui mandava a pessoa procurar um cartão que não
     # existe.
     shown = {m["id"] for m in metrics if m["role"] == "marker"}
+    if tier != "full":
+        return _reading_low_signal(context, coverage, tier)
+
     by_id = {m["id"]: m for m in metrics}
     reliable = [
         s for s in result.summaries if s.reliable and s.marker.id in shown
@@ -431,6 +568,12 @@ def build(
 
     reliable = [s for s in result.summaries if s.reliable]
     coverage = float(np.nanmean([s.coverage for s in result.summaries]))
+    if coverage >= cfg.report.tier_full:
+        tier = "full"
+    elif coverage >= cfg.report.tier_descriptive:
+        tier = "descriptive"
+    else:
+        tier = "insufficient"
 
     # Gráfico da sessão: eixo comum, sem buracos, em unidades da variabilidade
     # da própria calibração. É a vista do participante — a de investigação,
@@ -477,6 +620,7 @@ def build(
             "activeLabel": "silêncio" if context.mantra_label is None else "mantra",
         },
         "copy": {
+            "lowSignal": tier != "full",
             "title": (
                 "O que o teu sinal fez em silêncio"
                 if context.mantra_label is None
@@ -495,13 +639,18 @@ def build(
                 "média de outras pessoas."
             ),
         },
-        "headline": headline,
+        #: "full" | "descriptive" | "insufficient". Decide o que a página
+        #: mostra — ver report/html.py.
+        "tier": tier,
+        "spectrum": _spectrum(result, cfg) if tier != "insufficient" else {},
+        "coverageTrace": _coverage_trace(result, cfg),
+        "headline": headline if tier == "full" else [],
         #: Quantos cartões e barras o relatório mostra. Os restantes ficam em
         #: report.json, para investigação — o corte é de apresentação.
         "maxMetrics": int(cfg.report.max_metrics),
         "chart": chart,
         "metrics": metrics,
-        "reading": _reading(result, context, coverage, cfg, metrics),
+        "reading": _reading(result, context, coverage, cfg, metrics, tier),
         "glossary": [{"term": t, "def": d} for t, d in GLOSSARY],
         "counts": {
             "total": len(result.summaries),

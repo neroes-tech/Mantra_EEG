@@ -77,7 +77,18 @@ def main() -> int:
     if session is None:
         session = latest_session(load_config(meta_cfg or "config/default.yaml"))
     meta = json.loads((session / "raw_meta.json").read_text(encoding="utf-8"))
-    cfg = load_config(meta_cfg or meta.get("config_path") or "config/default.yaml")
+    # O caminho gravado pode ser de outra maquina: uma sessao trazida da banca
+    # tinha "D:/MantraEEG/config/default.yaml", de uma pen. Cai para a config
+    # local em vez de rebentar.
+    recorded = meta.get("config_path")
+    if meta_cfg:
+        cfg = load_config(meta_cfg)
+    elif recorded and Path(recorded).exists():
+        cfg = load_config(recorded)
+    else:
+        if recorded:
+            print(f"  (a config da gravacao nao existe aqui: {recorded})")
+        cfg = load_config("config/default.yaml")
 
     raw = np.load(session / "raw.npy")
     total_s = raw.shape[1] / cfg.device.sfreq_nominal

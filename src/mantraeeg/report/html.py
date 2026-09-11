@@ -243,6 +243,142 @@ def _sparkline(
     )
 
 
+def _spectrum_chart(spectrum: dict[str, Any]) -> str:
+    """O espectro do sinal da pessoa, com as bandas nomeadas por baixo.
+
+    É o que se mostra quando a comparação entre fases não se sustenta: não
+    depende de linha de base nenhuma, e continua a ser verdade com poucas
+    épocas — só fica com aspeto mais ruidoso, que é o aspeto que deve ter.
+    """
+    freqs = spectrum.get("freqs") or []
+    values = spectrum.get("db") or []
+    if len(freqs) < 8 or len(values) != len(freqs):
+        return ""
+
+    width, height = 860.0, 300.0
+    left, right, top, bottom = 46.0, 18.0, 20.0, 52.0
+    plot_w, plot_h = width - left - right, height - top - bottom
+    f0, f1 = freqs[0], freqs[-1]
+    lo, hi = min(values), max(values)
+    pad = max((hi - lo) * 0.1, 1.0)
+    lo, hi = lo - pad, hi + pad
+
+    def x_of(f: float) -> float:
+        return left + (f - f0) / (f1 - f0) * plot_w
+
+    def y_of(v: float) -> float:
+        return top + (hi - v) / (hi - lo) * plot_h
+
+    parts = [
+        f'<svg viewBox="0 0 {width:.0f} {height:.0f}" width="100%" role="img" '
+        f'aria-label="Espectro do sinal" style="display:block;overflow:visible;">'
+    ]
+
+    # As bandas, sombreadas e nomeadas: e o que torna o grafico legivel para
+    # quem nunca viu um espectro.
+    for name, colour in (
+        ("theta", "#5B8AD4"),
+        ("alpha", "#43BEC3"),
+        ("beta", "#5BBC99"),
+    ):
+        band = (spectrum.get("bands") or {}).get(name)
+        if not band:
+            continue
+        x0, x1 = x_of(max(band[0], f0)), x_of(min(band[1], f1))
+        parts.append(
+            f'<rect x="{x0:.1f}" y="{top:.1f}" width="{max(x1 - x0, 0):.1f}" '
+            f'height="{plot_h:.1f}" fill="{colour}" opacity="0.10"/>'
+        )
+        parts.append(
+            f'<text x="{(x0 + x1) / 2:.1f}" y="{top + plot_h + 32:.1f}" '
+            f'text-anchor="middle" fill="{colour}" font-family="{MONO}" '
+            f'font-size="9.5" letter-spacing="0.14em">{name.upper()}</text>'
+        )
+
+    for hz in (5, 10, 15, 20, 25, 30, 35, 40):
+        if not f0 <= hz <= f1:
+            continue
+        x = x_of(hz)
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top + plot_h:.1f}" x2="{x:.1f}" '
+            f'y2="{top + plot_h + 5:.1f}" stroke="rgba(169,191,197,0.28)"/>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{top + plot_h + 18:.1f}" text-anchor="middle" '
+            f'fill="{TEXT_3}" font-family="{MONO}" font-size="10">{hz}</text>'
+        )
+
+    points = " ".join(
+        f"{x_of(f):.1f},{y_of(v):.1f}" for f, v in zip(freqs, values)
+    )
+    parts.append(
+        f'<polyline points="{points}" fill="none" stroke="#43BEC3" '
+        f'stroke-width="1.8" stroke-linejoin="round"/>'
+    )
+    parts.append(
+        f'<text x="{width / 2:.1f}" y="{height - 4:.1f}" text-anchor="middle" '
+        f'fill="{TEXT_3}" font-family="{MONO}" font-size="9.5" '
+        f'letter-spacing="0.14em">OSCILACOES POR SEGUNDO (HZ)</text>'
+    )
+    parts.append("</svg>")
+    return (
+        f'<div style="background:{INK_900};border:1px solid {BORDER};'
+        f'border-radius:10px;padding:18px 20px 10px;">{"".join(parts)}</div>'
+    )
+
+
+def _coverage_chart(trace: dict[str, Any]) -> str:
+    """Onde houve leitura fiável ao longo da sessão. Uma faixa, nada mais."""
+    times = trace.get("times") or []
+    ok = trace.get("ok") or []
+    if len(times) < 4 or len(ok) != len(times):
+        return ""
+
+    width, height = 860.0, 74.0
+    left, right, top = 46.0, 18.0, 12.0
+    band_h = 26.0
+    plot_w = width - left - right
+    t0, t1 = times[0], times[-1]
+    if t1 <= t0:
+        return ""
+
+    parts = [
+        f'<svg viewBox="0 0 {width:.0f} {height:.0f}" width="100%" role="img" '
+        f'aria-label="Leitura fiavel ao longo da sessao" '
+        f'style="display:block;overflow:visible;">',
+        f'<rect x="{left:.1f}" y="{top:.1f}" width="{plot_w:.1f}" '
+        f'height="{band_h:.1f}" fill="rgba(169,191,197,0.07)" rx="3"/>',
+    ]
+    step = plot_w / len(times)
+    for i, good in enumerate(ok):
+        if not good:
+            continue
+        parts.append(
+            f'<rect x="{left + i * step:.2f}" y="{top:.1f}" '
+            f'width="{step + 0.6:.2f}" height="{band_h:.1f}" fill="#5BBC99" '
+            f'opacity="0.85"/>'
+        )
+
+    minute = 0
+    while t0 + minute * 60 <= t1:
+        x = left + (minute * 60 - t0) / (t1 - t0) * plot_w
+        if x >= left:
+            parts.append(
+                f'<text x="{x:.1f}" y="{top + band_h + 16:.1f}" '
+                f'text-anchor="middle" fill="{TEXT_3}" font-family="{MONO}" '
+                f'font-size="10">{minute}\u2032</text>'
+            )
+        minute += 1
+    parts.append("</svg>")
+    return (
+        f'<div style="background:{INK_900};border:1px solid {BORDER};'
+        f'border-radius:10px;padding:14px 20px 8px;">{"".join(parts)}'
+        f'<div style="font-family:{MONO};font-size:9.5px;letter-spacing:0.14em;'
+        f'text-transform:uppercase;color:{TEXT_3};padding-bottom:6px;">'
+        f'verde = leitura fiavel</div></div>'
+    )
+
+
 def _bars(metrics: list[dict[str, Any]]) -> tuple[str, list[str]]:
     """Todos os marcadores em percentagem, ordenados por magnitude.
 
@@ -461,6 +597,63 @@ def render(data: dict[str, Any], fragment: bool = False) -> str:
         for g in data["glossary"]
     )
 
+    spectrum_chart = _spectrum_chart(data.get("spectrum") or {})
+    coverage_chart = _coverage_chart(data.get("coverageTrace") or {})
+    tier = str(data.get("tier", "full"))
+    # A numeracao segue o que a pagina mostra: com dois blocos em vez
+    # de quatro, saltar de 02 para 05 parecia falta de seccoes.
+    reading_number = {"full": "05", "descriptive": "03"}.get(tier, "02")
+    if tier == "full":
+        sections = f"""
+  <div class="om-pad" style="padding-top:40px;">
+    {_eyebrow("01", "Em destaque")}
+    <p style="font-family:{SANS};font-size:14px;line-height:1.6;color:{TEXT_2};
+       margin:-6px 0 18px;max-width:60ch;text-wrap:pretty;">{featured_note}</p>
+    <div class="om-cards-3">{headline}</div>
+  </div>
+
+  <div class="om-pad" style="padding-top:36px;">
+    {_eyebrow("02", "A sessão minuto a minuto")}
+    {_line_chart(data["chart"], session["activeLabel"])}
+  </div>
+
+  <div class="om-pad" style="padding-top:36px;">
+    {_eyebrow("03", "Variação de todos os biomarcadores")}
+    <p style="font-family:{SANS};font-size:14px;line-height:1.6;color:{TEXT_2};
+       margin:-6px 0 18px;max-width:60ch;text-wrap:pretty;">
+      Quanto cada um mudou face ao teu repouso, em percentagem.</p>
+    {bars}
+  </div>
+
+  <div class="om-pad" style="padding-top:36px;">
+    {_eyebrow("04", "Biomarcador a biomarcador")}
+    <div class="om-cards-2">{cards}</div>
+  </div>
+
+"""
+    elif tier == "descriptive":
+        sections = f"""
+  <div class="om-pad" style="padding-top:40px;">
+    {_eyebrow("01", "O teu espectro")}
+    <p style="font-family:{SANS};font-size:14px;line-height:1.6;color:{TEXT_2};margin:-6px 0 18px;max-width:62ch;text-wrap:pretty;">
+      Em que ritmos a tua atividade se concentrou durante a sessão. Não
+      é uma comparação com nada — é o teu sinal, tal como foi gravado.</p>
+    {spectrum_chart}
+  </div>
+
+  <div class="om-pad" style="padding-top:36px;">
+    {_eyebrow("02", "Onde houve leitura")}
+    {coverage_chart}
+  </div>
+"""
+    else:
+        sections = f"""
+  <div class="om-pad" style="padding-top:40px;">
+    {_eyebrow("01", "O que conseguimos gravar")}
+    {coverage_chart}
+  </div>
+"""
+
     body = f"""
 <div class="om-page">
 <div class="om-sheet">
@@ -500,33 +693,10 @@ def render(data: dict[str, Any], fragment: bool = False) -> str:
     </div>
   </div>
 
-  <div class="om-pad" style="padding-top:40px;">
-    {_eyebrow("01", "Em destaque")}
-    <p style="font-family:{SANS};font-size:14px;line-height:1.6;color:{TEXT_2};
-       margin:-6px 0 18px;max-width:60ch;text-wrap:pretty;">{featured_note}</p>
-    <div class="om-cards-3">{headline}</div>
-  </div>
+{sections}
 
   <div class="om-pad" style="padding-top:36px;">
-    {_eyebrow("02", "A sessão minuto a minuto")}
-    {_line_chart(data["chart"], session["activeLabel"])}
-  </div>
-
-  <div class="om-pad" style="padding-top:36px;">
-    {_eyebrow("03", "Variação de todos os biomarcadores")}
-    <p style="font-family:{SANS};font-size:14px;line-height:1.6;color:{TEXT_2};
-       margin:-6px 0 18px;max-width:60ch;text-wrap:pretty;">
-      Quanto cada um mudou face ao teu repouso, em percentagem.</p>
-    {bars}
-  </div>
-
-  <div class="om-pad" style="padding-top:36px;">
-    {_eyebrow("04", "Biomarcador a biomarcador")}
-    <div class="om-cards-2">{cards}</div>
-  </div>
-
-  <div class="om-pad" style="padding-top:36px;">
-    {_eyebrow("05", "Leitura da sessão")}
+    {_eyebrow(reading_number, "Leitura da sessão")}
     <div style="display:flex;flex-direction:column;gap:16px;max-width:66ch;">
       {reading}
     </div>

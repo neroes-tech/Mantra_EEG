@@ -121,7 +121,6 @@ class MontageCfg:
     unused_channels: tuple[str, ...]
     reference: str
     apply_car: bool
-    min_good_channels_to_start: int
     validation: MontageValidationCfg
 
     @property
@@ -383,6 +382,8 @@ class ReportCfg:
     featured_mode: str
     featured_count: int
     max_metrics: int
+    tier_full: float
+    tier_descriptive: float
     language: str
     dpi: int
     figsize_in: tuple[float, float]
@@ -715,7 +716,6 @@ def load_config(path: str | Path = "config/default.yaml") -> Config:
         unused_channels=tuple(m["unused_channels"]),
         reference=str(m["reference"]),
         apply_car=bool(m["apply_car"]),
-        min_good_channels_to_start=int(m["min_good_channels_to_start"]),
         validation=MontageValidationCfg(
             enabled=bool(v["enabled"]),
             tap_test_seconds_per_channel=float(v["tap_test_seconds_per_channel"]),
@@ -1008,6 +1008,8 @@ def load_config(path: str | Path = "config/default.yaml") -> Config:
         featured_mode=str(rp["featured_mode"]),
         featured_count=int(rp["featured_count"]),
         max_metrics=int(rp.get("max_metrics", 6)),
+        tier_full=float(rp.get("tier_full", 0.30)),
+        tier_descriptive=float(rp.get("tier_descriptive", 0.05)),
         language=str(rp["language"]),
         dpi=int(rp["dpi"]),
         figsize_in=_pair(rp["figsize_in"], "report.figsize_in"),

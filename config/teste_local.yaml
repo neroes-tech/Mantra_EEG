@@ -70,8 +70,6 @@ montage:
   unused_channels: [Oz, Pz]             # gravados, não usados na v1
   reference: hardware                   # manter a referência do hardware
   apply_car: false                      # NÃO ligar: distorce assimetria e coerência
-  # SPEC 2: não avançar de CONTACT com menos de 4 dos 6 canais úteis bons.
-  min_good_channels_to_start: 4
 
   # Validação de montagem (o risco de F3/F4 trocados)
   validation:
@@ -469,7 +467,22 @@ report:
   # mais mudaram. Os restantes continuam em report.json — o corte e de
   # apresentacao, nao de analise. Oito cartoes, seis deles a dizer que nada
   # mudou, cansam antes de informar.
-  max_metrics: 6        # preenchido pelo investigador após a agregação
+  max_metrics: 6
+
+  # O relatorio tem tres niveis, decididos pela fraccao do tempo em que o
+  # sensor deu leitura fiavel. Num festival, com um palco ao lado, haver
+  # sessoes com sinal mau nao e excepcao — e o caso normal a planear.
+  #
+  #   >= tier_full          relatorio completo, com os marcadores todos.
+  #                         O sinal e ruidoso mas e o cerebro da pessoa.
+  #   >= tier_descriptive   sem comparacao entre fases: mostra o espectro e o
+  #                         ritmo da pessoa, que sao descritivos e nao
+  #                         dependem de uma linha de base.
+  #   abaixo                sem numeros. Com os electrodos a flutuar, dois
+  #                         participantes recebem numeros diferentes gerados
+  #                         pelo mesmo nao-sinal, e os dois acreditam.
+  tier_full: 0.30
+  tier_descriptive: 0.05        # preenchido pelo investigador após a agregação
   language: pt
   dpi: 150
   figsize_in: [11.69, 8.27]   # A4 paisagem
