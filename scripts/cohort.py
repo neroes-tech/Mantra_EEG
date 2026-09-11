@@ -51,6 +51,34 @@ def setup_console() -> None:
             pass
 
 
+def read_phases(session: pathlib.Path, total_s: float, meta: dict) -> list:
+    """As fases da sessao, preferindo events.json a raw_meta.json.
+
+    O raw_meta de gravacoes feitas antes de 11/09 pode trazer as fases de
+    VARIAS sessoes: o historico do controlador nao era limpo entre sessoes, e
+    como a base de tempo reinicia com cada ficheiro, saiam janelas sobrepostas
+    todas a comecar em zero. O events.json e escrito por gravacao e nunca teve
+    esse problema, portanto e a fonte de confianca.
+    """
+    events_path = session / "events.json"
+    if events_path.exists():
+        events = json.loads(events_path.read_text(encoding="utf-8"))
+        ordered = sorted(
+            [e for e in events if e.get("kind") == "phase"], key=lambda e: e["t_s"]
+        )
+        out = []
+        for i, event in enumerate(ordered):
+            end = ordered[i + 1]["t_s"] if i + 1 < len(ordered) else total_s
+            if end > event["t_s"]:
+                out.append((event["detail"], float(event["t_s"]), float(end)))
+        if out:
+            return out
+    return [
+        (p["phase"], float(p["start_s"]), float(p["end_s"]))
+        for p in meta.get("phases", [])
+    ]
+
+
 def fetch(cfg, folder: pathlib.Path, refresh: bool) -> list[pathlib.Path]:
     """Traz da Drive o que ainda nao esta em cache."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -122,14 +150,11 @@ def main() -> int:
             print(f"  {session.name:<26} sem raw_meta.json")
             continue
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        phases = [
-            (p["phase"], float(p["start_s"]), float(p["end_s"]))
-            for p in meta.get("phases", [])
-        ]
+        raw = np.load(session / "raw.npy")
+        phases = read_phases(session, raw.shape[1] / cfg.device.sfreq_nominal, meta)
         if not {"CALIBRATION", "MANTRA"} <= {n for n, _, _ in phases}:
             print(f"  {session.name:<26} sem as duas fases")
             continue
-        raw = np.load(session / "raw.npy")
         try:
             result = analyse(
                 raw[EEG_SLICE].astype(float), cfg, phases,

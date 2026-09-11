@@ -362,6 +362,14 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         self._recorder = Recorder(self._cfg, device_short_id=self._device.short_id)
+        # Limpar o historico ANTES de comecar. Sem isto, analysed_segments()
+        # devolve as fases de todas as sessoes desde que a aplicacao abriu, e
+        # como a base de tempo reinicia com o novo Recorder, saem janelas
+        # sobrepostas a comecar as tres em zero. Numa sessao real (aparelho 14,
+        # 18:21) o raw_meta trazia oito fases de tres sessoes diferentes, a
+        # calibracao ficou com ZERO epocas, e todos os marcadores sairam "sem
+        # referencia" apesar de haver 41% de cobertura.
+        self._session.restart()
         self._session.go_to(Phase.CALIBRATION, "manual")
 
     def _set_durations(self, calibration: float, mantra: float, settle: float) -> None:
