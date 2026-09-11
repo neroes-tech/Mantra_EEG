@@ -21,3 +21,4 @@ dist_novo/
 dist_*/
 *.zip
 !relatoriofestival.zip
+data/cohort/
