@@ -123,6 +123,16 @@ class ResultsView(QtWidgets.QWidget):
         self._bars.getPlotItem().getViewBox().setMouseEnabled(x=False, y=False)
         charts.addWidget(self._bars, stretch=2)
 
+        self._empty = QtWidgets.QLabel()
+        self._empty.setWordWrap(True)
+        self._empty.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._empty.setStyleSheet(
+            "background:#11141b; border:1px solid #2a3142; border-radius:12px;"
+            "color:#a7b0c0; font-size:15px; padding:34px;"
+        )
+        self._empty.setVisible(False)
+        charts.addWidget(self._empty, stretch=3)
+
         self._footer = QtWidgets.QLabel()
         self._footer.setWordWrap(True)
         self._footer.setStyleSheet(f"color:#5d6779; font-size:12px;")
@@ -139,6 +149,64 @@ class ResultsView(QtWidgets.QWidget):
         self._data = prepare(result, marker_ids, phases)
         self._rebuild_toggles(marker_ids)
         self._redraw()
+        self._refresh_empty_state(result)
+
+    def _refresh_empty_state(self, result: AnalysisResult) -> None:
+        """Sem séries não se desenha nada — mas tem de se dizer porquê.
+
+        Numa sessão real (headset 14) **nenhuma** das 46 épocas passou no
+        controlo de qualidade, e o ecrã final ficou simplesmente em branco: o
+        operador não tinha como distinguir "a análise falhou" de "o sinal não
+        prestou". São coisas diferentes e levam a ações diferentes.
+        """
+        has_series = bool(self._data and self._data.series)
+        self._plot.setVisible(has_series)
+        self._bars.setVisible(has_series)
+        if has_series:
+            self._empty.setVisible(False)
+            return
+
+        import numpy as np_
+
+        quality = result.quality
+        total = int(quality.channel_ok.shape[1]) if quality.channel_ok.size else 0
+        rows = [
+            quality.name_to_row[n]
+            for n in self._cfg.montage.metric_channels
+            if n in quality.name_to_row
+        ]
+        good = (
+            int(quality.channel_ok[rows].all(axis=0).sum())
+            if rows and total
+            else 0
+        )
+        sd = (
+            float(np_.median(np_.std(result.preprocessed.clean, axis=1)))
+            if result.preprocessed is not None
+            else float("nan")
+        )
+
+        reason = (
+            f"Nenhuma das {total} janelas de sinal passou no controlo de "
+            f"qualidade ({good} boas)."
+        )
+        if np_.isfinite(sd):
+            # O separador de milhares formatado a parte: um .replace(",", " ")
+            # sobre a frase inteira comia tambem a virgula de "50 uV, portanto".
+            amplitude = f"{sd:,.0f}".replace(",", " ")
+            reason += (
+                f" A amplitude mediana foi de {amplitude} µV — o EEG plausível "
+                f"anda entre 5 e 50 µV, portanto o que entrou não é atividade "
+                f"cerebral."
+            )
+        self._empty.setText(
+            "Não há gráficos para mostrar.\n\n"
+            + reason
+            + "\n\nA gravação está guardada na mesma. Causas habituais: "
+            "elétrodos sem contacto com o couro cabeludo, ou ruído elétrico "
+            "do ambiente. Ver o contacto por elétrodo em Ctrl+I."
+        )
+        self._empty.setVisible(True)
 
     def _rebuild_toggles(self, marker_ids: list[str]) -> None:
         while self._toggle_row.count():

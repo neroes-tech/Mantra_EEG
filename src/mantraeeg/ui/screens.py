@@ -334,6 +334,10 @@ class ExplainScreen(Screen):
         row.addStretch(1)
         self.body.addLayout(row)
 
+        self._adequacy = label("", 15, MUTED)
+        self.body.addWidget(self._adequacy)
+        self._refresh_adequacy()
+
         self._status = label("", 17, MUTED)
         self.space(20)
         self.body.addWidget(self._status)
@@ -411,6 +415,41 @@ class ExplainScreen(Screen):
             self._boxes, ("calibration", "mantra", "settle")
         ):
             duration_label.setText(format_time(self._spins[key].value()))
+        self._refresh_adequacy()
+
+    def _refresh_adequacy(self) -> None:
+        """O que a calibração escolhida compra, no sítio onde ela se escolhe.
+
+        Este aviso existia só no painel do investigador. Uma sessão real
+        correu com 30 s de calibração — 15 s úteis, seis épocas, duas janelas
+        de coerência, ambas insuficientes antes sequer de olhar para o sinal —
+        e ninguém viu nada até o ecrã final aparecer vazio.
+        """
+        if not hasattr(self, "_adequacy"):
+            return
+        calibration = float(self._spins["calibration"].value())
+        adequacy = self._cfg.reference_adequacy(calibration, calibration * 0.5)
+        if adequacy.power_quality == "insufficient":
+            self._adequacy.setText(
+                f"Calibração curta: {adequacy.n_power_epochs} janelas de "
+                f"referência. Não chega para comparar nada — 180 s dá 44."
+            )
+            colour = "#e0a04a"
+        elif adequacy.conn_quality == "insufficient":
+            self._adequacy.setText(
+                "Sintonia com o mantra e Sintonia meditativa vão ficar sem "
+                "referência. Precisam de 180 s de calibração."
+            )
+            colour = "#c99a1e"
+        elif adequacy.power_quality == "thin" or adequacy.conn_quality == "thin":
+            self._adequacy.setText("Referência no limite. 180 s seria folgado.")
+            colour = "#8b95a7"
+        else:
+            self._adequacy.setText("")
+            colour = MUTED
+        self._adequacy.setStyleSheet(
+            f"color:{colour}; font-size:15px; background:transparent;"
+        )
 
     def set_status(self, text: str, colour: str = MUTED) -> None:
         self._status.setText(text)
