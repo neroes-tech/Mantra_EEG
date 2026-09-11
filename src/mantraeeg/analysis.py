@@ -111,7 +111,16 @@ class MarkerSummary:
         return self.active - self.baseline
 
     def change_text(self) -> str:
-        """Como se escreve a mudança. Percentagem só onde ela faz sentido."""
+        """Como se escreve a mudança. Percentagem só onde ela faz sentido.
+
+        "sem dados" e "sem referência" não são a mesma coisa e não se dizem da
+        mesma maneira: numa sessão de 3 min a coerência teve 11 janelas boas
+        na meditação e **uma** na calibração, portanto havia valor mas não
+        havia contra o que o comparar. Dizer "sem dados" mandava procurar um
+        problema no sítio errado — o que falta é calibração mais longa.
+        """
+        if self.n_baseline < 3 <= self.n_active:
+            return "sem referência"
         if self.is_signed:
             if not np.isfinite(self.delta):
                 return "sem dados"

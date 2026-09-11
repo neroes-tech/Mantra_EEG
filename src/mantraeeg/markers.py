@@ -392,7 +392,7 @@ REGISTRY: tuple[Marker, ...] = (
     Marker(
         id="coh_theta2",
         label="Coerência teta2 F3–F4",
-        friendly="Sintonia do foco interior",
+        friendly="Sintonia meditativa",
         kind="pair",
         channels=("F3", "F4"),
         fn=coh_theta2,

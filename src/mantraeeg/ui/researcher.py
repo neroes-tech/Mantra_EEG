@@ -471,9 +471,30 @@ class ResearcherPanel(QtWidgets.QDialog):
         adequacy = self._cfg.reference_adequacy(
             self._plan.calibration_s, self._plan.calib_use_last_s
         )
+        # A "Sintonia com o mantra" e a "Sintonia meditativa" sao o unico par
+        # especifico de pratica com mantra, e sao as primeiras a cair com
+        # calibracao curta: a grelha delas e de 10 s com passo de 5, portanto
+        # 30 s uteis compram cinco janelas. Este aviso estava em cinzento de
+        # 11 px e passou despercebido numa sessao real, onde a coerencia ficou
+        # com UMA janela de calibracao.
+        style = f"color:{DIM}; font-size:11px; font-family:'Consolas',monospace;"
         note = ""
         if adequacy.conn_quality == "insufficient":
-            note = "\n  -> coerência desativada nesta sessão"
+            note = (
+                "\n  -> SINTONIA COM O MANTRA e SINTONIA MEDITATIVA ficam"
+                "\n     sem referencia. Precisam de ~180 s de calibracao."
+            )
+            style = (
+                "color:#e0a04a; font-size:12px; font-weight:600;"
+                " font-family:'Consolas',monospace;"
+            )
+        elif adequacy.conn_quality == "thin":
+            note = "\n  -> sintonia com referencia fraca (~180 s seria folgado)"
+            style = (
+                "color:#c99a1e; font-size:11px;"
+                " font-family:'Consolas',monospace;"
+            )
+        self._adequacy.setStyleSheet(style)
         self._adequacy.setText(adequacy.describe() + note)
 
     def _refresh_status(self) -> None:

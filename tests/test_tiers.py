@@ -45,8 +45,8 @@ def _with_coverage(result, coverage: float):
 
 @pytest.mark.parametrize(
     "coverage,expected",
-    [(0.95, "full"), (0.31, "full"), (0.29, "descriptive"),
-     (0.06, "descriptive"), (0.04, "insufficient"), (0.0, "insufficient")],
+    [(0.95, "full"), (0.11, "full"), (0.09, "descriptive"),
+     (0.03, "descriptive"), (0.01, "insufficient"), (0.0, "insufficient")],
 )
 def test_tier_follows_coverage(cfg, result, coverage, expected):
     data = build(_with_coverage(result, coverage), cfg, CONTEXT, [])
@@ -55,7 +55,7 @@ def test_tier_follows_coverage(cfg, result, coverage, expected):
 
 def test_low_signal_never_claims_a_change(cfg, result):
     """Sem sinal, nenhuma palavra de variação — nem no destaque nem na prosa."""
-    for coverage in (0.2, 0.01):
+    for coverage in (0.05, 0.005):
         data = build(_with_coverage(result, coverage), cfg, CONTEXT, [])
         assert data["headline"] == []
         page = render(data)
@@ -67,7 +67,7 @@ def test_low_signal_never_claims_a_change(cfg, result):
 
 
 def test_insufficient_shows_no_numbers_but_still_says_something(cfg, result):
-    data = build(_with_coverage(result, 0.01), cfg, CONTEXT, [])
+    data = build(_with_coverage(result, 0.005), cfg, CONTEXT, [])
     page = render(data)
     assert "O que conseguimos gravar" in page
     assert "repetimos a sessão" in " ".join(data["reading"])
@@ -76,6 +76,6 @@ def test_insufficient_shows_no_numbers_but_still_says_something(cfg, result):
 
 
 def test_descriptive_keeps_the_spectrum(cfg, result):
-    data = build(_with_coverage(result, 0.2), cfg, CONTEXT, [])
+    data = build(_with_coverage(result, 0.05), cfg, CONTEXT, [])
     assert data["spectrum"].get("freqs"), "o espectro é o que sobra para mostrar"
     assert "O teu espectro" in render(data)

@@ -481,8 +481,8 @@ report:
   #   abaixo                sem numeros. Com os electrodos a flutuar, dois
   #                         participantes recebem numeros diferentes gerados
   #                         pelo mesmo nao-sinal, e os dois acreditam.
-  tier_full: 0.30
-  tier_descriptive: 0.05        # preenchido pelo investigador após a agregação
+  tier_full: 0.10
+  tier_descriptive: 0.02        # preenchido pelo investigador após a agregação
   language: pt
   dpi: 150
   figsize_in: [11.69, 8.27]   # A4 paisagem

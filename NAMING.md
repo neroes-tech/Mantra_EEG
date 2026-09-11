@@ -43,7 +43,7 @@ mantra em vez de meditação genérica. Merece a secção mais destacada.
 | `id` | `label_public` | Direção | Explicação |
 |---|---|---|---|
 | `coh_alpha1` | Sintonia com Mantra | ↑ | O quanto os dois lados do cérebro oscilam em conjunto. É o marcador que a investigação sobre meditação com mantra identificou como o mais sensível. |
-| `coh_theta2` | Sintonia do foco interior | ↑ | A mesma sintonia, mas no ritmo da atenção virada para dentro. Sobe em quem ouve recitação em sânscrito. |
+| `coh_theta2` | Sintonia meditativa | ↑ | A mesma sintonia, mas no ritmo da atenção virada para dentro. Sobe em quem ouve recitação em sânscrito. |
 
 ### metricas a serem excluidas do efeito do mantra
 | `imcoh_alpha1` | Sintonia — verificação sem contaminação | ↑ | Confirma que a sintonia é real e não um efeito da forma como os elétrodos estão ligados. |
