@@ -387,8 +387,19 @@ def _bars(metrics: list[dict[str, Any]]) -> tuple[str, list[str]]:
     enorme que não quer dizer nada. Esses aparecem nomeados por baixo, com a
     diferença absoluta, em vez de desaparecerem em silêncio.
     """
-    rows = [m for m in metrics if m.get("pct") is not None]
-    excluded = [m["name"] for m in metrics if m.get("pct") is None]
+    # Fora as desproporcionadas: uma barra de +179% esmaga a escala e achata
+    # contra o eixo todas as que mudaram de facto. O numero continua no
+    # cartao da metrica.
+    rows = [
+        m
+        for m in metrics
+        if m.get("pct") is not None and not m.get("extreme")
+    ]
+    excluded = [
+        m["name"]
+        for m in metrics
+        if m.get("pct") is None or m.get("extreme")
+    ]
     if not rows:
         return "", excluded
     rows.sort(key=lambda m: abs(m["pct"]), reverse=True)
@@ -482,6 +493,10 @@ def _headline_card(item: dict[str, Any]) -> str:
     que a pessoa quer ver aqui.
     """
     note = "medido" if item["reliable"] else "dentro do normal"
+    # Uma percentagem acima de report.large_pct sai em corpo pequeno. Um
+    # "+179%" em 38 px promete uma certeza que o intervalo de confianca nao
+    # tem, sobretudo quando vem de uma linha de base minuscula.
+    size = 22 if item.get("extreme") else 38
     return (
         f'<div style="background:{INK_600};border:1px solid {BORDER};'
         f'border-radius:10px;padding:20px 20px 18px;display:flex;'
@@ -489,7 +504,7 @@ def _headline_card(item: dict[str, Any]) -> str:
         f'<span style="font-family:{MONO};font-size:9px;font-weight:500;'
         f'letter-spacing:0.22em;text-transform:uppercase;color:{TEXT_3};">'
         f'{_esc(item["label"])}</span>'
-        f'<span style="font-family:{SANS};font-size:38px;font-weight:600;'
+        f'<span style="font-family:{SANS};font-size:{size}px;font-weight:600;'
         f'letter-spacing:-0.03em;line-height:1;color:{item["color"]};'
         f'font-variant-numeric:tabular-nums;">{_esc(item["change"])}</span>'
         f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'

@@ -536,6 +536,12 @@ def build(
                     if np.isfinite(percent)
                     else summary.change_text()
                 ),
+                #: Percentagem desproporcionada face ao que a sustenta. Sai
+                #: mais pequena no cartao e nao entra nas barras — ver
+                #: report.large_pct na configuracao.
+                "extreme": bool(
+                    np.isfinite(percent) and abs(percent) > cfg.report.large_pct
+                ),
                 "stdChange": _j(standardised),
                 "deltaColor": colour,
                 "deltaBg": TINT[colour],
@@ -559,6 +565,7 @@ def build(
         {
             "label": by_id[i]["name"],
             "change": by_id[i]["pctText"],
+            "extreme": by_id[i]["extreme"],
             "color": by_id[i]["deltaColor"],
             "reliable": by_id[i]["reliable"],
         }

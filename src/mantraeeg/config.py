@@ -382,6 +382,7 @@ class ReportCfg:
     featured_mode: str
     featured_count: int
     max_metrics: int
+    large_pct: float
     tier_full: float
     tier_descriptive: float
     language: str
@@ -1008,6 +1009,7 @@ def load_config(path: str | Path = "config/default.yaml") -> Config:
         featured_mode=str(rp["featured_mode"]),
         featured_count=int(rp["featured_count"]),
         max_metrics=int(rp.get("max_metrics", 6)),
+        large_pct=float(rp.get("large_pct", 100.0)),
         tier_full=float(rp.get("tier_full", 0.10)),
         tier_descriptive=float(rp.get("tier_descriptive", 0.02)),
         language=str(rp["language"]),

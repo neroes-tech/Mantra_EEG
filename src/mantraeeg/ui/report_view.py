@@ -27,7 +27,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from ..analysis import AnalysisResult, percent_change
+from ..analysis import AnalysisResult, baseline_spread, percent_change
 from ..config import Config
 from ..report.audience import AudienceData, prepare
 
@@ -217,25 +217,57 @@ class ResultsView(QtWidgets.QWidget):
         if not shown:
             return
 
-        labels, values, brushes = [], [], []
-        for i, series in enumerate(shown):
-            summary = self._result.summary_of(series.marker_id)
-            if summary is None:
-                continue
-            # A mesma regua do relatorio. Antes punha-se aqui o delta absoluto
-            # num eixo rotulado "%": o Controlo emocional aparecia a ~0 no
-            # ecra e a -46 % no relatorio, a descrever a mesma sessao.
-            percent = percent_change(self._result, summary)
-            if not np.isfinite(percent):
-                continue
-            labels.append(series.label)
-            values.append(percent)
-            colour = SERIES_COLOURS[
-                [s.marker_id for s in self._data.series].index(series.marker_id)
-                % len(SERIES_COLOURS)
-            ]
-            # Apagado quando o IC cruza zero: nunca anunciar o que não se sustenta.
-            brushes.append(colour if summary.reliable else "#39404f")
+        order = [s.marker_id for s in self._data.series]
+
+        def colour_of(marker_id: str) -> str:
+            return SERIES_COLOURS[order.index(marker_id) % len(SERIES_COLOURS)]
+
+        def collect(use_percent: bool):
+            """As barras numa das duas escalas. Ver o fallback abaixo."""
+            labels, values, brushes = [], [], []
+            for series in shown:
+                summary = self._result.summary_of(series.marker_id)
+                if summary is None:
+                    continue
+                if use_percent:
+                    # A mesma regua do relatorio. Antes punha-se aqui o delta
+                    # absoluto num eixo rotulado "%": o Controlo emocional
+                    # aparecia a ~0 no ecra e a -46 % no relatorio.
+                    value = percent_change(self._result, summary)
+                    if not np.isfinite(value):
+                        continue
+                    # Uma barra desproporcionada achata as outras contra o eixo.
+                    if abs(value) > self._cfg.report.large_pct:
+                        continue
+                else:
+                    spread = baseline_spread(self._result, series.marker_id)
+                    if not np.isfinite(spread) or spread <= 0:
+                        continue
+                    value = (summary.active - summary.baseline) / spread
+                    if not np.isfinite(value):
+                        continue
+                labels.append(series.label)
+                values.append(float(value))
+                # Apagado quando o IC cruza zero: nunca anunciar o que nao se
+                # sustenta.
+                brushes.append(
+                    colour_of(series.marker_id) if summary.reliable else "#39404f"
+                )
+            return labels, values, brushes
+
+        labels, values, brushes = collect(use_percent=True)
+        unit = "%"
+        if not labels:
+            # Nenhuma percentagem utilizavel — quantidades com sinal, linhas de
+            # base perto de zero, ou variacoes desproporcionadas. Em vez de um
+            # painel vazio a seguir a uma sessao de oito minutos, muda-se de
+            # escala: a variacao em desvios da oscilacao do proprio repouso
+            # existe sempre que houve leitura, e o eixo diz o que e.
+            labels, values, brushes = collect(use_percent=False)
+            unit = "desvios"
+        self._bars.setLabel(
+            "bottom", "variação face à calibração", units=unit
+        )
         if not labels:
             return
 

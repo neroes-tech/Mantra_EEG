@@ -469,6 +469,17 @@ report:
   # mudou, cansam antes de informar.
   max_metrics: 6
 
+  # Acima desta percentagem o numero sai mais pequeno e fica FORA do grafico
+  # de barras.
+  #
+  # Nao e censura: uma variacao de +179% e verdadeira no sentido aritmetico,
+  # mas quando sai de uma linha de base de 0,012 medida em sete epocas, o que
+  # a domina e o denominador, nao a mudanca. Impressa em 38 px no cartao
+  # grande, promete uma certeza que o intervalo de confianca nao tem — e numa
+  # barra, esmaga a escala e achata todas as outras contra o eixo. O valor
+  # continua la, escrito, so deixa de gritar.
+  large_pct: 100.0
+
   # O relatorio tem tres niveis, decididos pela fraccao do tempo em que o
   # sensor deu leitura fiavel. Num festival, com um palco ao lado, haver
   # sessoes com sinal mau nao e excepcao — e o caso normal a planear.
