@@ -102,6 +102,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._send_stage = ""
         self._send_deadline = QtCore.QTimer(self)
         self._send_deadline.setSingleShot(True)
+        # Ligado UMA vez. Estava dentro de _send_report, portanto cada nova
+        # tentativa acrescentava outra ligacao e o aviso de prazo esgotado
+        # passava a disparar tantas vezes quantas as tentativas.
+        self._send_deadline.timeout.connect(self._on_send_timeout)
         #: O destaque do ecrã final, para o botão "Adicionar" do painel poder
         #: acrescentar-lhe marcadores sem o perder.
         self._featured: list[str] = []
@@ -800,7 +804,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # O prazo é o que impede uma espera infinita. Sem isto, uma chamada de
         # rede que nunca responde deixa o ecrã a dizer "a preparar" para
         # sempre, e foi o que aconteceu.
-        self._send_deadline.timeout.connect(self._on_send_timeout)
         self._send_deadline.start(int(timeout_s * 1000))
         threading.Thread(target=work, daemon=True, name=f"envio-{token}").start()
 
