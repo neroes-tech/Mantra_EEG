@@ -79,7 +79,33 @@ class ResearcherPanel(QtWidgets.QDialog):
 
     # -- construção ----------------------------------------------------------- #
     def _build(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self)
+        # O painel tem seis caixas empilhadas e nao cabe em 768 px de altura:
+        # a parte de baixo (Drive, sinal ao vivo) ficava cortada sem forma de
+        # la chegar. Area de scroll, barra fina, e a roda do rato chega.
+        shell = QtWidgets.QVBoxLayout(self)
+        shell.setContentsMargins(0, 0, 0, 0)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:0;}"
+            "QScrollBar:vertical{background:transparent; width:10px;}"
+            "QScrollBar::handle:vertical{background:#2a3142; border-radius:5px;"
+            "min-height:40px;}"
+            "QScrollBar::handle:vertical:hover{background:#3d475c;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{"
+            "background:transparent;}"
+        )
+        inner = QtWidgets.QWidget()
+        inner.setStyleSheet("background:transparent;")
+        scroll.setWidget(inner)
+        shell.addWidget(scroll)
+
+        layout = QtWidgets.QVBoxLayout(inner)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 

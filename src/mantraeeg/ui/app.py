@@ -856,7 +856,16 @@ class MainWindow(QtWidgets.QMainWindow):
         panel.apply_requested.connect(self._apply_markers_to_report)
         panel.set_selection(self._marker_selection)
         panel.reconnect_requested.connect(self._reconnect)
-        panel.resize(1300, 860)
+        # 1300x860 nao cabe num portatil de 1366x768. Limita-se ao que o
+        # ecra tem, e o scroll do painel trata do resto.
+        available = self.screen().availableGeometry() if self.screen() else None
+        if available is not None:
+            panel.resize(
+                min(1300, int(available.width() * 0.95)),
+                min(860, int(available.height() * 0.90)),
+            )
+        else:
+            panel.resize(1300, 860)
         panel.show()
         self._panel = panel
 

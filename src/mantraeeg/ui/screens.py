@@ -164,20 +164,84 @@ class Screen(QtWidgets.QWidget):
     #: Abaixo disto a interface passa a compacta: menos goteira, fontes
     #: menores, e os passos do protocolo empilham-se.
     NARROW = 1100
+    #: Abaixo disto os espaços verticais encolhem para metade.
+    SHORT = 820
 
     def __init__(self) -> None:
         super().__init__()
         self.setStyleSheet(f"background:{BG};")
-        self.body = QtWidgets.QVBoxLayout(self)
+
+        # Tudo dentro de uma área de scroll. Num portátil de 768 px de altura
+        # o botão de iniciar ficava fora do ecrã, e no ecrã final a caixa do
+        # consentimento e os campos do email ficavam cortados — o participante
+        # não conseguia sequer pedir o relatório. O conteúdo continua centrado
+        # quando cabe; quando não cabe, desliza. A barra é fina e discreta, e
+        # a roda do rato chega.
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self._scroll = QtWidgets.QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:0;}"
+            "QScrollArea > QWidget > QWidget{background:transparent;}"
+            "QScrollBar:vertical{background:transparent; width:10px; margin:0;}"
+            "QScrollBar::handle:vertical{background:#2a3142; border-radius:5px;"
+            "min-height:40px;}"
+            "QScrollBar::handle:vertical:hover{background:#3d475c;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{"
+            "background:transparent;}"
+        )
+
+        content = QtWidgets.QWidget()
+        content.setStyleSheet("background:transparent;")
+        self.body = QtWidgets.QVBoxLayout(content)
         self.body.setContentsMargins(90, 70, 90, 70)
         self.body.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._scroll.setWidget(content)
+        outer.addWidget(self._scroll)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         side = max(16, min(90, int(self.width() * 0.05)))
-        top = max(20, min(70, int(self.height() * 0.07)))
+        # O topo era 7 % da altura com um piso de 20. Num ecrã baixo isso
+        # empurrava o conteúdo todo para fora — passa a 4 %, com teto de 56.
+        top = max(12, min(56, int(self.height() * 0.04)))
         self.body.setContentsMargins(side, top, side, top)
         self.on_resize(self.width() < self.NARROW)
+        self.on_resize_vertical(self.height() < self.SHORT)
+
+    def space(self, pixels: int) -> None:
+        """Um espaço vertical que encolhe em ecrãs baixos.
+
+        Os ``addSpacing`` fixos somavam mais de 250 px só de ar no ecrã de
+        explicação. Registados aqui, encolhem para metade abaixo de
+        :attr:`SHORT`.
+        """
+        if not hasattr(self, "_spacers"):
+            self._spacers: list[tuple[QtWidgets.QSpacerItem, int]] = []
+        item = QtWidgets.QSpacerItem(
+            0, pixels, QtWidgets.QSizePolicy.Policy.Minimum,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        self.body.addItem(item)
+        self._spacers.append((item, pixels))
+
+    def on_resize_vertical(self, short: bool) -> None:
+        for item, pixels in getattr(self, "_spacers", []):
+            item.changeSize(
+                0,
+                pixels // 2 if short else pixels,
+                QtWidgets.QSizePolicy.Policy.Minimum,
+                QtWidgets.QSizePolicy.Policy.Fixed,
+            )
+        self.body.invalidate()
 
     def on_resize(self, compact: bool) -> None:
         """Gancho para os ecrãs que têm de mudar mais do que as margens."""
@@ -202,11 +266,11 @@ class WelcomeScreen(Screen):
             self.body.addWidget(logo)
         else:
             self.body.addWidget(label("NEROES", 46, FG, bold=True))
-        self.body.addSpacing(50)
+        self.space(50)
         self.body.addWidget(label(cfg.ui.title, 62, FG, bold=True))
-        self.body.addSpacing(14)
+        self.space(14)
         self.body.addWidget(label(cfg.ui.subtitle, 30, MUTED))
-        self.body.addSpacing(70)
+        self.space(70)
 
         button = big_button("Iniciar sessão")
         button.clicked.connect(self.start.emit)
@@ -228,7 +292,7 @@ class ExplainScreen(Screen):
         super().__init__()
         self._cfg = cfg
         self.body.addWidget(label("Vamos ajustar os sensores", 44, FG, bold=True))
-        self.body.addSpacing(10)
+        self.space(10)
         self.body.addWidget(
             label(
                 "Fique confortável e mantenha os olhos fechados durante toda a "
@@ -237,7 +301,7 @@ class ExplainScreen(Screen):
                 MUTED,
             )
         )
-        self.body.addSpacing(44)
+        self.space(44)
 
         self._steps = QtWidgets.QHBoxLayout()
         self._steps.setSpacing(0)
@@ -258,9 +322,9 @@ class ExplainScreen(Screen):
                 self._steps.addWidget(arrow)
             self._steps.addWidget(self._step_box(title, note), stretch=1)
 
-        self.body.addSpacing(40)
+        self.space(40)
         self.body.addWidget(self._duration_row(), alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.body.addSpacing(40)
+        self.space(40)
 
         button = big_button("Iniciar demo", GOOD)
         button.clicked.connect(self.begin.emit)
@@ -271,7 +335,7 @@ class ExplainScreen(Screen):
         self.body.addLayout(row)
 
         self._status = label("", 17, MUTED)
-        self.body.addSpacing(20)
+        self.space(20)
         self.body.addWidget(self._status)
 
     def _step_box(self, title: str, note: str) -> QtWidgets.QWidget:
@@ -367,9 +431,9 @@ class TimerScreen(Screen):
         self.hint = label(hint, 19, MUTED)
         self.body.addStretch(1)
         self.body.addWidget(self.instruction)
-        self.body.addSpacing(26)
+        self.space(26)
         self.body.addWidget(self.countdown)
-        self.body.addSpacing(16)
+        self.space(16)
         self.body.addWidget(self.hint)
         self.body.addStretch(1)
 
@@ -431,22 +495,24 @@ class ReportScreen(Screen):
         super().__init__()
         self._cfg = cfg
         self.body.addWidget(label("O seu registo", 46, FG, bold=True))
-        self.body.addSpacing(8)
+        self.space(8)
         self._summary = label("", 22, MUTED)
         self.body.addWidget(self._summary)
-        self.body.addSpacing(24)
+        self.space(24)
 
         from .report_view import ResultsView
 
         self.results = ResultsView(cfg)
-        self.results.setMinimumHeight(360)
+        # Minimo baixo: o que faltar resolve-se com scroll, e um minimo
+        # alto empurrava o bloco do email para fora do ecra.
+        self.results.setMinimumHeight(240)
         self.body.addWidget(self.results, stretch=1)
-        self.body.addSpacing(20)
+        self.space(20)
 
         if cfg.ui.email.get("enabled", False):
             self.body.addWidget(self._email_block())
 
-        self.body.addSpacing(16)
+        self.space(16)
         self._footer = label(cfg.report.participant_footer, 15, "#5d6779")
         self.body.addWidget(self._footer)
 
