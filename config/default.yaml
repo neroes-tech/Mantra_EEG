@@ -121,7 +121,13 @@ protocol:
   # SEM LIMITES. As durações são livres; se a fase do mantra exceder a duração
   # do vídeo, ele repete em ciclo.
   calibration_s: 60.0
-  calib_use_last_s: 30.0      # os primeiros segundos estão contaminados pela explicação
+  # A calibracao usa-se TODA. Era metade, para deixar de fora os
+  # primeiros segundos em que o operador ainda esta a falar — mas a
+  # aquisicao ja descarta 10 s
+  # ao arrancar e o filtro come mais 5 s em cada ponta, portanto esse
+  # inicio ja estava protegido duas vezes. Deitar fora metade custava
+  # metade das epocas de referencia, que e o que falta a coerencia.
+  calib_use_last_s: 60.0
   mantra_s: 240.0
   settle_s: 15.0
   # Com settle_s >= este valor, o segmento pós-mantra é usado como SEGUNDA linha
@@ -267,7 +273,18 @@ quality:
 # janela é detrended antes de qualquer medida. Medido no M0 sobre dados reais.
 contact_monitor:
   update_period_s: 1.0
-  window_s: 2.0
+  # 8 s, e nao 2. Medido numa sessao real: com janela de 2 s o monitor via
+  # 574 uV de desvio padrao onde a analise via 43,7 — treze vezes mais, e os
+  # oito electrodos ficavam permanentemente vermelhos numa sessao com 42% de
+  # cobertura aproveitavel.
+  #
+  # A causa e o filtfilt: um passa-alto de 1 Hz leva um a dois segundos a
+  # assentar, portanto numa janela de 2 s o transiente E a janela inteira. Nao
+  # basta alargar (8 s sem corte ainda dava 299 uV): o transiente vive nas
+  # pontas, e e o corte que o resolve. Com 8 s e 1,5 s cortados de cada lado o
+  # monitor da 22,8 uV, que e o mesmo numero que a analise.
+  window_s: 8.0
+  edge_trim_s: 1.5
   detrend_window: true
   # O indicador de validação do dispositivo (canal 16) leu 1 em todas as
   # amostras com os elétrodos completamente soltos. Não é usado.

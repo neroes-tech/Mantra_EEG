@@ -131,7 +131,7 @@ class ResultsView(QtWidgets.QWidget):
             "color:#a7b0c0; font-size:15px; padding:34px;"
         )
         self._empty.setVisible(False)
-        charts.addWidget(self._empty, stretch=3)
+        root.addWidget(self._empty)
 
         self._footer = QtWidgets.QLabel()
         self._footer.setWordWrap(True)
@@ -152,21 +152,29 @@ class ResultsView(QtWidgets.QWidget):
         self._refresh_empty_state(result)
 
     def _refresh_empty_state(self, result: AnalysisResult) -> None:
-        """Sem séries não se desenha nada — mas tem de se dizer porquê.
+        """Sem marcadores, desenha-se o sinal em bruto.
 
-        Numa sessão real (headset 14) **nenhuma** das 46 épocas passou no
-        controlo de qualidade, e o ecrã final ficou simplesmente em branco: o
-        operador não tinha como distinguir "a análise falhou" de "o sinal não
-        prestou". São coisas diferentes e levam a ações diferentes.
+        Um ecrã em branco depois de oito minutos sentado lê-se como "o meu
+        cérebro não deu nada", e é a pior leitura possível — sobretudo quando
+        a verdade é que o elétrodo não estava a tocar na cabeça. O traçado do
+        sinal tal como foi gravado é sempre honesto: não é um biomarcador,
+        não afirma nada sobre a pessoa, e está rotulado como o que é.
+
+        A frase sobre a qualidade só aparece quando **quase nada** passou —
+        até 1 % de aproveitamento. Acima disso o traçado fala por si e uma
+        parede de texto a explicar ruído assusta mais do que informa.
         """
         has_series = bool(self._data and self._data.series)
-        self._plot.setVisible(has_series)
         self._bars.setVisible(has_series)
         if has_series:
             self._empty.setVisible(False)
+            self._plot.setVisible(True)
             return
 
         import numpy as np_
+
+        self._plot.setVisible(True)
+        self._draw_raw_trace(result)
 
         quality = result.quality
         total = int(quality.channel_ok.shape[1]) if quality.channel_ok.size else 0
@@ -176,37 +184,88 @@ class ResultsView(QtWidgets.QWidget):
             if n in quality.name_to_row
         ]
         good = (
-            int(quality.channel_ok[rows].all(axis=0).sum())
-            if rows and total
-            else 0
+            int(quality.channel_ok[rows].all(axis=0).sum()) if rows and total else 0
         )
+        usable = good / total if total else 0.0
+
+        if usable > 0.01:
+            self._empty.setVisible(False)
+            return
+
         sd = (
             float(np_.median(np_.std(result.preprocessed.clean, axis=1)))
             if result.preprocessed is not None
             else float("nan")
         )
-
         reason = (
-            f"Nenhuma das {total} janelas de sinal passou no controlo de "
-            f"qualidade ({good} boas)."
+            f"Em cima está o teu sinal tal como foi gravado. Não conseguimos "
+            f"tirar dele os biomarcadores: das {total} janelas de sinal, "
+            f"{good} passaram no controlo de qualidade."
         )
         if np_.isfinite(sd):
-            # O separador de milhares formatado a parte: um .replace(",", " ")
-            # sobre a frase inteira comia tambem a virgula de "50 uV, portanto".
             amplitude = f"{sd:,.0f}".replace(",", " ")
             reason += (
-                f" A amplitude mediana foi de {amplitude} µV — o EEG plausível "
-                f"anda entre 5 e 50 µV, portanto o que entrou não é atividade "
-                f"cerebral."
+                f" A amplitude mediana foi de {amplitude} µV, e a atividade "
+                f"cerebral anda entre 5 e 50 µV — o que o sensor apanhou veio "
+                f"sobretudo de fora da cabeça."
             )
         self._empty.setText(
-            "Não há gráficos para mostrar.\n\n"
-            + reason
-            + "\n\nA gravação está guardada na mesma. Causas habituais: "
-            "elétrodos sem contacto com o couro cabeludo, ou ruído elétrico "
-            "do ambiente. Ver o contacto por elétrodo em Ctrl+I."
+            reason
+            + "  A gravação está guardada. Causas habituais: elétrodos sem "
+            "contacto com o couro cabeludo, ou ruído elétrico do ambiente."
         )
         self._empty.setVisible(True)
+
+    def _draw_raw_trace(self, result: AnalysisResult) -> None:
+        """O sinal filtrado dos canais de métrica, empilhado, ao longo da sessão."""
+        import numpy as np_
+
+        self._plot.clear()
+        pre = result.preprocessed
+        if pre is None or pre.clean.size == 0:
+            return
+
+        rows = [
+            self._cfg.montage.index_of(n)
+            for n in self._cfg.montage.metric_channels
+        ]
+        rows = [r for r in rows if r < pre.clean.shape[0]]
+        if not rows:
+            return
+
+        # Uma amostra a cada 10: a 250 Hz sobram 25 pontos por segundo, que
+        # chegam para se ver a oscilacao e nao afogam o desenho.
+        step = 10
+        data = pre.clean[rows, ::step]
+        times = pre.t0_s + np_.arange(data.shape[1]) * step / pre.sfreq
+
+        # Escala comum, para os canais nao se sobreporem: cada um no seu
+        # carril, com a amplitude normalizada pela propria dispersao.
+        spread = float(np_.median(np_.std(data, axis=1))) or 1.0
+        offset = 4.0 * spread
+        labels = []
+        for i, row in enumerate(data):
+            self._plot.plot(
+                times,
+                row + i * offset,
+                pen=pg.mkPen(SERIES_COLOURS[i % len(SERIES_COLOURS)], width=1),
+            )
+            labels.append((i * offset, self._cfg.montage.metric_channels[i]))
+
+        self._plot.setLabel("left", "sinal em bruto")
+        self._plot.getAxis("left").setTicks([labels])
+        if self._data is not None and self._data.mantra_start_s is not None:
+            self._plot.addItem(
+                pg.InfiniteLine(
+                    pos=self._data.mantra_start_s,
+                    angle=90,
+                    pen=pg.mkPen(
+                        "#4b5a74", width=1, style=QtCore.Qt.PenStyle.DashLine
+                    ),
+                    label="mantra",
+                    labelOpts={"color": MUTED, "position": 0.95, "movable": False},
+                )
+            )
 
     def _rebuild_toggles(self, marker_ids: list[str]) -> None:
         while self._toggle_row.count():
@@ -227,6 +286,10 @@ class ResultsView(QtWidgets.QWidget):
 
     def _redraw(self) -> None:
         self._plot.clear()
+        # O eixo pode ter ficado no modo "sinal em bruto" de uma sessao
+        # anterior sem marcadores.
+        self._plot.setLabel("left", "face ao seu normal")
+        self._plot.getAxis("left").setTicks(None)
         self._plot.addLine(y=0, pen=pg.mkPen("#3a4152", width=1))
         self._curves.clear()
         if self._data is None or self._result is None:

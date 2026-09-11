@@ -107,9 +107,13 @@ def test_metadata_records_reference_adequacy(cfg_tmp, device_info):
         (rec.finalize(device_info, 250.0) / RAW_META_NAME).read_text(encoding="utf-8")
     )
     adequacy = meta["reference_adequacy"]
-    assert adequacy["n_power_epochs"] == 14
-    assert adequacy["n_conn_windows"] == 5
-    assert adequacy["conn_quality"] == "insufficient"
+    # 60 s de calibracao usados por inteiro. Eram 30 (metade) e davam 14
+    # epocas e 5 janelas — a coerencia nascia morta em qualquer sessao com a
+    # duracao por omissao.
+    assert adequacy["calib_used_s"] == 60.0
+    assert adequacy["n_power_epochs"] == 29
+    assert adequacy["n_conn_windows"] == 11
+    assert adequacy["power_quality"] == "ok"
 
 
 def test_events_are_persisted(cfg_tmp, device_info):

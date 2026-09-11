@@ -143,8 +143,14 @@ class ContactMonitor:
                 graded, self._sfreq, self._pp.bandpass_hz, self._pp.bandpass_order
             )
 
-        std = graded.std(axis=-1)
-        p2p = graded.max(axis=-1) - graded.min(axis=-1)
+        # As pontas fora antes de medir: o passa-alto de 1 Hz aplicado com
+        # filtfilt oscila nos primeiros e ultimos segundos, e sem este corte o
+        # que se mede e o transiente do filtro. Ver contact_monitor.edge_trim_s.
+        trim = int(round(self._cm.edge_trim_s * self._sfreq))
+        measured = graded[:, trim:-trim] if trim and graded.shape[1] > 2 * trim else graded
+
+        std = measured.std(axis=-1)
+        p2p = measured.max(axis=-1) - measured.min(axis=-1)
 
         # O declive sai do sinal com notch mas SEM passa-banda: o rolloff do
         # passa-banda impoe um declive negativo que faria ruido branco passar

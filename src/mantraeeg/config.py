@@ -278,6 +278,7 @@ class ContactLevelCfg:
 class ContactMonitorCfg:
     update_period_s: float
     window_s: float
+    edge_trim_s: float
     detrend_window: bool
     trust_device_validation_flag: bool
     grade_on_filtered: bool
@@ -883,6 +884,7 @@ def load_config(path: str | Path = "config/default.yaml") -> Config:
     contact_monitor = ContactMonitorCfg(
         update_period_s=float(c["update_period_s"]),
         window_s=float(c["window_s"]),
+        edge_trim_s=float(c.get("edge_trim_s", 0.0)),
         detrend_window=bool(c["detrend_window"]),
         trust_device_validation_flag=bool(c["trust_device_validation_flag"]),
         grade_on_filtered=bool(c["grade_on_filtered"]),
