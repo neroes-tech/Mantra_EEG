@@ -56,6 +56,9 @@ class SessionEntry:
     #: sempre que houve leitura, e é a escala que permite comparar marcadores
     #: de unidades diferentes.
     standardised: dict[str, float] = field(default_factory=dict)
+    #: Marcadores descartados nesta sessao por denominador colapsado. Ver
+    #: :data:`MAX_STANDARDISED`.
+    degenerate: tuple[str, ...] = ()
 
     @property
     def usable(self) -> bool:
@@ -110,6 +113,11 @@ class CohortResult:
     min_coverage: float
 
     @property
+    def n_degenerate(self) -> int:
+        """Valores descartados por denominador colapsado, entre as incluidas."""
+        return sum(len(s.degenerate) for s in self.included)
+
+    @property
     def n_excluded(self) -> int:
         return len(self.sessions) - len(self.included)
 
@@ -155,6 +163,23 @@ def _median_ci(values: np.ndarray, draws: int = 4000, seed: int = 11) -> tuple[f
 #: sozinha a mediana e o intervalo de toda a coorte.
 MIN_BASELINE_EPOCHS = 5
 
+#: Tecto para a variacao padronizada de uma sessao. Acima disto o que se esta
+#: a medir nao e uma mudanca — e um denominador colapsado.
+#:
+#: Medido: a sessao 15_18324811092026 deu +1 092 060 desvios na Quietude
+#: corporal, porque o SMR relativo na calibracao foi 2,9e-09 quando o
+#: plausivel anda entre 0,01 e 0,10. Nove ordens de grandeza abaixo do
+#: possivel: naquela banda nao havia sinal nenhum durante a calibracao.
+#: Dividir por essa dispersao produz um numero enorme que arrasta sozinho a
+#: mediana e o intervalo de toda a coorte.
+#:
+#: 20 e generoso de proposito: um efeito de EEG real anda entre 0,2 e 2
+#: desvios da oscilacao propria, portanto nada verdadeiro se perde aqui.
+#: E uma regra, aplicada a todos os marcadores por igual, e o numero de
+#: valores que ela retira e reportado na pagina — nao e escolher a dedo o
+#: ponto que incomoda.
+MAX_STANDARDISED = 20.0
+
 
 def summarise_session(
     name: str,
@@ -166,6 +191,7 @@ def summarise_session(
     """Reduz uma sessão a um número por marcador."""
     percent: dict[str, float] = {}
     standardised: dict[str, float] = {}
+    dropped: list[str] = []
     for summary in result.summaries:
         if summary.marker.role != "marker":
             continue
@@ -176,9 +202,11 @@ def summarise_session(
         spread = baseline_spread(result, summary.marker.id)
         if not np.isfinite(spread) or spread <= 0:
             continue
-        standardised[summary.marker.id] = float(
-            (summary.active - summary.baseline) / spread
-        )
+        change = float((summary.active - summary.baseline) / spread)
+        if abs(change) > MAX_STANDARDISED:
+            dropped.append(summary.marker.id)
+            continue
+        standardised[summary.marker.id] = change
         value = percent_change(result, summary)
         if np.isfinite(value):
             percent[summary.marker.id] = float(value)
@@ -193,6 +221,7 @@ def summarise_session(
         result=result,
         percent=percent,
         standardised=standardised,
+        degenerate=tuple(dropped),
     )
 
 

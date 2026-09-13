@@ -256,6 +256,15 @@ def render(result: CohortResult, cfg: Config, title: str = "") -> str:
     used = ", ".join(mantras.get(m, m) for m in result.mantras) or "—"
     minutes = sum(s.duration_s for s in result.included) / 60
 
+    degenerate = ""
+    if result.n_degenerate:
+        degenerate = (
+            f" Outras {result.n_degenerate} leituras isoladas saíram por a "
+            f"referência daquela medida ter ficado indistinguível de zero: "
+            f"dividir por ela dá um número enorme que não é uma mudança, é "
+            f"uma divisão por quase-nada."
+        )
+
     stat = (
         lambda label, value: f'<div style="background:{INK_700};padding:16px 18px;'
         f'display:flex;flex-direction:column;gap:6px;">'
@@ -331,7 +340,7 @@ def render(result: CohortResult, cfg: Config, title: str = "") -> str:
       Entraram na análise as sessões acima de {result.min_coverage:.0%}. As
       restantes {result.n_excluded} não foram corrigidas nem suavizadas —
       foram postas de lado, porque uma gravação de elétrodos soltos não
-      acrescenta ruído neutro, acrescenta variação inventada.</p>
+      acrescenta ruído neutro, acrescenta variação inventada.{degenerate}</p>
     {_quality(result)}
   </div>
 
@@ -347,11 +356,12 @@ def render(result: CohortResult, cfg: Config, title: str = "") -> str:
         sinal de forma substancial.</p>
       <p style="font-family:{SANS};font-size:15px;line-height:1.68;
          color:{TEXT_2};margin:0;text-wrap:pretty;">
-        <b style="color:{TEXT_1};">Não são {sessions} pessoas diferentes.</b>
-        São {sessions} sessões, e a maior parte no mesmo aparelho. Medições
-        repetidas da mesma pessoa contam-se como uma só, e a estatística aqui
-        trata-as como independentes — o que torna os intervalos mais
-        otimistas do que deviam ser.</p>
+        <b style="color:{TEXT_1};">Quem se senta na banca escolhe-se a si
+        próprio.</b> São {sessions} pessoas diferentes, uma sessão cada — o
+        que faz de cada uma uma observação independente, e é o que permite
+        contar sentidos como se conta. Mas são pessoas que passaram por um
+        festival de bem-estar e decidiram experimentar um sensor de EEG. O
+        que se encontrar aqui descreve esse grupo, e não a população.</p>
       <p style="font-family:{SANS};font-size:15px;line-height:1.68;
          color:{TEXT_2};margin:0;text-wrap:pretty;">
         <b style="color:{TEXT_1};">Seis sessões não chegam.</b> Para um
