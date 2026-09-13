@@ -343,6 +343,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_connected(self, status) -> None:
         if status.usable:
+            # Arrancar a aquisicao JA, e nao so quando se carrega em iniciar.
+            #
+            # Os electrodos secos levam de 40 a 60 s a fazer contacto: medido
+            # na sessao 16_16132913092026, a amplitude comecou em 47,6 uV e so
+            # estabilizou em 20 uV ao fim de ~60 s. A calibracao apanhava
+            # exactamente essa janela e ficou com 7 epocas boas em 27, contra
+            # 78% no resto da sessao — uma gravacao excelente perdida por ter
+            # comecado cedo demais.
+            #
+            # Esse tempo nao pode sair do participante: numa banca ninguem
+            # espera um minuto a olhar para o ecra. Mas ele JA existe — e o
+            # tempo em que o operador ajusta a touca e explica o protocolo.
+            # Basta o sinal estar a correr durante essa conversa.
+            self._device.start_streaming()
             self.explain.set_status(
                 f"equipamento pronto · {status.device_id}", "#8fd6a0"
             )
@@ -922,7 +936,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self._device.connect_async(after)
 
     # -- relógio --------------------------------------------------------------------- #
+    def _refresh_explain_status(self) -> None:
+        """Diz ao operador quando os sensores estao assentes.
+
+        Em linguagem de banca, nao de laboratorio: a pessoa esta a olhar para
+        este ecra. "A preparar os sensores" e "Sensores prontos" chegam.
+        """
+        if self._screens.currentWidget() is not self.explain:
+            return
+        status = self._device.status()
+        if not status.usable:
+            return
+        remaining = self._device.settle_remaining_s()
+        if remaining > 0:
+            self.explain.set_status(
+                f"a preparar os sensores… {remaining:.0f} s", "#c99a1e"
+            )
+        else:
+            self.explain.set_status("sensores prontos", "#8fd6a0")
+
     def _on_tick(self) -> None:
+        self._refresh_explain_status()
         self._refresh_explain_status()
         self._session.tick(self._device.elapsed_s)
         phase = self._session.phase

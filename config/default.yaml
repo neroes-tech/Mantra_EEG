@@ -19,10 +19,20 @@ device:
   n_device_channels: 17       # buffer do dispositivo (SPEC 1.1)
   line_freq_hz: 50.0          # rede europeia (SPEC 1.2)
 
-  # Descartar após start_stream: os offsets DC do amplificador levam segundos a
-  # assentar. Medido empiricamente no M0 - sem contacto a rampa não estabiliza
-  # sequer aos 35 s. Reavaliar com contacto bom.
-  settle_discard_s: 10.0
+  # Descartar apos start_stream: os offsets DC do amplificador E o contacto
+  # dos electrodos secos levam dezenas de segundos a assentar.
+  #
+  # Medido na sessao 16_16132913092026, que teve o melhor sinal de todas: a
+  # amplitude dos canais de metrica comecou em 47,6 uV, caiu para 23,5 aos
+  # 25 s e estabilizou em ~20 uV a partir dos 60. A calibracao, que corria
+  # nos primeiros 60 s, ficou com 7 epocas boas em 27 — contra 78% no resto
+  # da sessao. A gravacao era excelente e perdeu-se por ter comecado cedo.
+  #
+  # 45 s nao custa nada ao participante: a aquisicao arranca quando se entra
+  # no ecra de explicacao (ver ui/app.py::_on_connected), e assenta enquanto
+  # o operador ajusta a touca e explica o protocolo. Quando se carrega em
+  # iniciar, ja passou.
+  settle_discard_s: 45.0
 
   brainflow:
     serial_number: ""         # vazio = auto-deteta o dispositivo emparelhado

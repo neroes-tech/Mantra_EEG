@@ -206,6 +206,10 @@ class DeviceManager:
         self._set(DeviceState.DISCONNECTED, "desligado")
 
     # -- aquisição ---------------------------------------------------------------- #
+    def settle_remaining_s(self) -> float:
+        """Segundos que faltam para o sinal assentar. Zero quando ja assentou."""
+        return self._acq.settle_remaining_s if self._acq is not None else 0.0
+
     def start_streaming(self) -> bool:
         """Começa a adquirir. O LED do Unicorn passa a azul fixo."""
         if self._acq is None and not self.connect():
